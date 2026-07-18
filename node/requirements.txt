@@ -1,0 +1,4 @@
+# picam_node runtime deps. Install on each Pi via install.sh.
+# picamera2 is provided by the Raspberry Pi OS package python3-picamera2
+# (apt install), NOT pip — it pulls in libcamera. Listed here for reference.
+PyYAML>=6.0

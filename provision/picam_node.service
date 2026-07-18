@@ -1,0 +1,22 @@
+[Unit]
+Description=32PiScanner capture node
+After=network-online.target chrony.service
+Wants=network-online.target chrony.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/picam_node/picam_node.py
+Restart=on-failure
+RestartSec=2
+User=root
+# Real-time priority helps clock_nanosleep wake on time. Modest nice value
+# avoids starving libcamera's helper threads.
+Nice=-10
+LimitNOFILE=4096
+# Capture and configs live here:
+ReadWritePaths=/var/lib/picam_node /etc/picam_node
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
