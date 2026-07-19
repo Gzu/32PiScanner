@@ -1,0 +1,11 @@
+# Minimal dnsmasq image, built from a pinned Debian base so you can vet every
+# layer (no trusting a random registry image). ~small; dnsmasq only.
+FROM debian:stable-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends dnsmasq \
+ && rm -rf /var/lib/apt/lists/*
+
+# Config is bind-mounted read-only at runtime (see compose.yaml).
+# -k keeps dnsmasq in the foreground so the container stays up and logs to stdout.
+ENTRYPOINT ["dnsmasq", "-k", "--conf-file=/etc/dnsmasq.conf"]

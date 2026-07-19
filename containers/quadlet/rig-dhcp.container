@@ -1,0 +1,31 @@
+# 32PiScanner DHCP (dnsmasq) — Podman quadlet, boot-persistent systemd service.
+# This is the "v2" deployment: for testing use ../compose.yaml instead.
+#
+# One-time setup (see ../README.md → "v2: boot-persistent quadlets"):
+#   1. Build the image:   sudo podman build -t rig-dhcp -f ../Containerfile.dnsmasq ..
+#   2. Place the config:  sudo install -D ../dnsmasq.conf /etc/32piscanner/dnsmasq.conf
+#   3. Install this unit: sudo cp rig-dhcp.container /etc/containers/systemd/
+#   4. Activate:          sudo systemctl daemon-reload && sudo systemctl start rig-dhcp
+
+[Unit]
+Description=32PiScanner DHCP (dnsmasq)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=rig-dhcp
+Image=localhost/rig-dhcp:latest
+# Host networking: DHCP broadcast (255.255.255.255:67) can't cross a NAT bridge.
+Network=host
+AddCapability=NET_ADMIN
+AddCapability=NET_RAW
+AddCapability=NET_BIND_SERVICE
+# Config lives on the host; edit interface= there to your rig NIC.
+Volume=/etc/32piscanner/dnsmasq.conf:/etc/dnsmasq.conf:ro
+
+[Service]
+Restart=always
+
+[Install]
+# This is what makes it start on boot (quadlet reads [Install], no separate enable).
+WantedBy=multi-user.target

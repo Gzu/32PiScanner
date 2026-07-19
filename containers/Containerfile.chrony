@@ -1,0 +1,12 @@
+# Minimal chrony image, built from a pinned Debian base.
+FROM debian:stable-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends chrony \
+ && rm -rf /var/lib/apt/lists/*
+
+# Config is bind-mounted read-only at /etc/chrony/chrony.conf (Debian path).
+# -d runs chronyd in the foreground (no fork), logging to stderr.
+# NOTE: serve-only config — no SYS_TIME capability is granted, so chronyd cannot
+# and does not touch the host clock.
+ENTRYPOINT ["chronyd", "-d", "-f", "/etc/chrony/chrony.conf"]

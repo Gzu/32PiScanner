@@ -1,0 +1,28 @@
+# 32PiScanner NTP (chrony, serve-only) — Podman quadlet, boot-persistent systemd service.
+# This is the "v2" deployment: for testing use ../compose.yaml instead.
+#
+# One-time setup (see ../README.md → "v2: boot-persistent quadlets"):
+#   1. Build the image:   sudo podman build -t rig-ntp -f ../Containerfile.chrony ..
+#   2. Place the config:  sudo install -D ../chrony.conf /etc/32piscanner/chrony.conf
+#   3. Install this unit: sudo cp rig-ntp.container /etc/containers/systemd/
+#   4. Activate:          sudo systemctl daemon-reload && sudo systemctl start rig-ntp
+
+[Unit]
+Description=32PiScanner NTP (chrony, serve-only)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=rig-ntp
+Image=localhost/rig-ntp:latest
+Network=host
+# NET_BIND_SERVICE to bind udp/123. Deliberately NOT SYS_TIME: serve-only chrony
+# never steps/slews the shared kernel clock.
+AddCapability=NET_BIND_SERVICE
+Volume=/etc/32piscanner/chrony.conf:/etc/chrony/chrony.conf:ro
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

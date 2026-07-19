@@ -1,0 +1,46 @@
+# 32PiScanner field-brain — DHCP + NTP as throwaway containers.
+#
+# Goal: CLEAN TEARDOWN. Nothing lands in the host package set or /etc; the two
+# services live entirely in containers with bind-mounted configs. Remove them and
+# the host is exactly as it was (bar the one static-IP connection — see README).
+#
+# Host distro-independent: works the same on Kali / Debian / Fedora / Ubuntu,
+# because the service internals are the Debian base image, not your host.
+#
+# Run rootful (sudo): DHCP needs privileged ports (67) + raw sockets, and both
+# services use host networking so they sit directly on the rig NIC.
+#
+#   sudo podman-compose up -d --build      # start
+#   sudo podman-compose down               # stop + remove containers
+#
+# (Docker Compose works too; swap `podman-compose` for `docker compose`.)
+
+services:
+  dhcp:
+    build:
+      context: .
+      dockerfile: Containerfile.dnsmasq
+    image: rig-dhcp
+    container_name: rig-dhcp
+    network_mode: host                 # REQUIRED: DHCP broadcast can't cross a NAT bridge
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - NET_BIND_SERVICE
+    restart: unless-stopped
+    volumes:
+      # On an SELinux host (Fedora) append ',Z' to relabel. Kali/Debian: leave as-is.
+      - ./dnsmasq.conf:/etc/dnsmasq.conf:ro
+
+  ntp:
+    build:
+      context: .
+      dockerfile: Containerfile.chrony
+    image: rig-ntp
+    container_name: rig-ntp
+    network_mode: host
+    cap_add:
+      - NET_BIND_SERVICE               # bind udp/123; NOT SYS_TIME (serve-only)
+    restart: unless-stopped
+    volumes:
+      - ./chrony.conf:/etc/chrony/chrony.conf:ro
