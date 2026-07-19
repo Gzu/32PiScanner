@@ -45,10 +45,26 @@ Any other UDP client             ─┘
 ```
 docs/         protocol spec, architecture notes, provisioning guide
 node/         picam_node daemon (runs on every Pi)
-tools/        Python CLI for testing the rig from a laptop
+tools/        cli.py (laptop CLI) + gui.py (web control GUI, serves tools/gui_web/)
 provision/    chrony configs, systemd units, Pi install script
 android/      Kotlin + Jetpack Compose app (scaffolded in next iteration)
 ```
+
+## Control GUI
+
+A dark, instrument-panel web UI ("Faceplate") that wraps the whole CLI surface —
+live 32-Pi grid with GO/NO-GO verdict, one-tap take (capture → upload → verify on
+the share → clear, with CLEAR gated on verification), autoconfigure with a
+motion-safe exposure clamp, set-ntp/set-smb, fleet update, contact-sheet review.
+
+```bash
+python3 tools/gui.py            # on the field-brain laptop → http://<laptop-ip>:8321
+python3 tools/gui.py --sim 32   # develop/demo without the rig (fake fleet)
+```
+
+Stdlib-only backend that speaks the UDP protocol directly; any browser on the rig
+LAN (the tablet included) is a client. One rig operation at a time, every open
+browser sees the same live state.
 
 ## Status
 

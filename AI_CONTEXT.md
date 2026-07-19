@@ -38,6 +38,20 @@ This file is dense and skips human-friendly framing. Read top to bottom before a
 
 9. **Runtime config via SET_NTP / SET_SMB** added in iteration 2 — no need to edit 32 SD cards to repoint NTP or SMB target.
 
+11. **Web control GUI on the field brain (decided 2026-07-19).** `tools/gui.py` — stdlib-only
+   Python backend (Python 3.9-compatible, Pillow optional) that speaks the UDP protocol
+   directly (client semantics copied from cli.py) and serves `tools/gui_web/` (vanilla JS,
+   no build step, offline-capable) to any browser on the rig LAN, tablet included. Design
+   direction: **"Faceplate"** — dark fixed instrument panel (user chose C from a 3-direction
+   design pitch; light directions A/B rejected; roster mapping pi_id→physical-position
+   **deferred to v2**). Key mechanics: server-side operation lock (one rig op at a time,
+   SSE keeps all browsers in sync), GO/NO-GO verdict fused from PONGs gating the FIRE
+   button (override checkbox), one-tap take = capture→upload→verify-on-share→offer-clear
+   with **CLEAR gated on filesystem verification** (never trust UPLOADED alone), triage
+   distinguishing capture-miss (retake) from upload-miss (retry), session.json manifest
+   per take, `--sim N --sim-faults dead:1,ntp:1,smb:1,stale:1` fake fleet for off-rig dev.
+   Protocol v1 untouched. Runtime state in `~/.picam_gui/`.
+
 10. **Split field-brain architecture (decided 2026-06-04).** A **Linux laptop** (Debian-based; user's laptop is Kali) is the portable field brain: it serves **DHCP (dnsmasq) + NTP (chrony) + SMB (Samba)** to the rig on `192.168.50.0/24`. The **Windows desktop is reconstruction-only** — it never joins the rig LAN during a shoot; images are pulled afterward from the laptop's `//192.168.50.1/scans` share into RealityCapture. This **supersedes the NTP-on-Windows / SMB-to-Windows parts of decisions #3 and #6** (no code change needed — SMB is SMB, the Pi chrony client just points at the laptop IP). Internet is optional and only needed for one-time `apt` provisioning; offline the laptop serves `local stratum 10`. Full guide: `docs/setup-guide-ubuntu.md` (Debian/Kali); one-shot provisioner: `provision/setup-fieldbrain-ubuntu.sh`. Also containerized (clean teardown): `containers/` (compose + quadlets).
 
 ## Dominant quality risk (cannot fully solve in software)
@@ -92,6 +106,8 @@ provision/
   teardown-fieldbrain-ubuntu.sh  reverts setup-fieldbrain-ubuntu.sh (--keep-smb / --purge-data)
 tools/
   cli.py                         subcommands: ping configure capture upload set-ntp set-smb session
+  gui.py                         web control GUI backend (see decision #11); --sim N for fake fleet
+  gui_web/                       Faceplate frontend (index.html / app.css / app.js, no build step)
 android/                         EMPTY — Kotlin/Compose app not scaffolded yet
 ```
 
@@ -141,7 +157,8 @@ python3 cli.py session --session 2026-05-26_rex_take01 --dest smb://rc-box/scans
 
 1. **Validate on one real Pi** — *PARTIALLY DONE (2026-07-19).* CONFIGURE → CAPTURE → UPLOAD verified end-to-end on the first Pi against the Linux field-brain laptop; `UPLOAD` returns `UPLOADED`. Real v2.1 `size_bytes` now available from the CAPTURED reply for transfer-time math. **Still TODO:** `dd`-clone the SD to ≥2 Pis and measure trigger spread (target <5 ms wired) — spread is undefined on a single node.
    - Bring-up gotchas observed: (a) `/etc/picam_node/credentials/` is `0700` root-owned, so shell **tab-completion silently fails** for a normal user — edit `default` with `sudo` and the **full path typed by hand** (the "no such file" confusion was a missing `sudo`/truncated path, not a missing file). (b) `install.sh` is `set -euo pipefail`, so a failed `apt` (no internet) aborts it **before** creating `/etc/picam_node` — the Pi needs internet for that one-time install.
-2. **Scaffold Android app** — `android/` directory exists but empty. Kotlin + Jetpack Compose. Four screens: Devices (PING grid), Settings (CONFIGURE + SET_NTP/SET_SMB), Capture (shutter + leadtime slider), Sessions (history + UPLOAD retry). Reuse protocol semantics from `tools/cli.py` and `docs/protocol.md` verbatim.
+2. **Scaffold Android app** — `android/` directory exists but empty. Kotlin + Jetpack Compose. Four screens: Devices (PING grid), Settings (CONFIGURE + SET_NTP/SET_SMB), Capture (shutter + leadtime slider), Sessions (history + UPLOAD retry). Reuse protocol semantics from `tools/cli.py` and `docs/protocol.md` verbatim. *Interim (2026-07-19): the tablet can already drive the rig through the web GUI (decision #11) in a browser — lowers urgency, doesn't replace the native app decision.*
+2b. **GUI v2 backlog** — roster mapping pi_id→physical position (user deferred to v2); then: Bluetooth clicker trigger, fleet shutdown + end-of-day rsync backup, RealityCapture EXIF/XMP export prep.
 3. **Calibration tool** `tools/calibrate.py` — capture ChArUco board from all cams, solve intrinsics+extrinsics with OpenCV, export RealityCapture camera registration XML.
 4. **Rig geometry / lighting doc** — camera placement for humans+animals, lens choices, continuous-light selection. Currently undecided whether one rig serves both subjects or separate.
 5. **Watchdog** — heartbeat-or-reboot daemon on each Pi. Defensive.

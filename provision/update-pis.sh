@@ -55,7 +55,11 @@ fi
 
 log "pushing $(basename "$DAEMON") ($(wc -c <"$DAEMON" | tr -d ' ') bytes) -> $DEST on ${#ips[@]} Pi(s)"
 
-SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=5)
+# BatchMode: fail fast instead of prompting for a password (this script also
+# runs headless under tools/gui.py). ServerAlive*: a Pi dying mid-transfer
+# would otherwise hang the established TCP session for many minutes.
+SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=5
+          -o BatchMode=yes -o ServerAliveInterval=5 -o ServerAliveCountMax=3)
 REMOTE="sudo -n install -m0755 /tmp/picam_node.py '$DEST' \
         && sudo -n systemctl restart picam_node \
         && systemctl is-active --quiet picam_node && echo updated"

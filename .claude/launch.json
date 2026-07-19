@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gui-sim-faults",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["tools/gui.py", "--port", "8321", "--sim", "32", "--sim-faults", "dead:1,ntp:1,smb:1,stale:1"],
+      "port": 8321
+    },
+    {
+      "name": "gui-sim-clean",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["tools/gui.py", "--port", "8322", "--sim", "32"],
+      "port": 8322
+    }
+  ]
+}

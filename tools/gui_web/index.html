@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>32PISCANNER</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header id="topbar">
+  <div id="brand">32PISCANNER</div>
+  <div id="verdict-block" class="v-unknown">
+    <span id="verdict-state">····</span>
+    <span id="verdict-reason"></span>
+  </div>
+  <div id="topbar-right">
+    <span id="sim-badge" hidden>SIM</span>
+    <span id="link-dot" class="down" title="SSE link">LINK</span>
+    <button id="mute-btn" type="button" title="countdown beeps">&#9834; ON</button>
+    <span id="clock">--:--:--</span>
+  </div>
+</header>
+
+<main id="grid">
+
+  <!-- ─── RIG ─── -->
+  <section id="rig" class="region" style="grid-area:rig">
+    <h2>RIG <button id="btn-sweep" class="hbtn" type="button">SWEEP</button></h2>
+    <div class="rbody">
+      <div id="rig-grid"></div>
+      <div id="rig-status" class="statusline">no sweep yet</div>
+    </div>
+  </section>
+
+  <!-- ─── TRIGGER ─── -->
+  <section id="trigger" class="region" style="grid-area:trigger">
+    <h2>TRIGGER</h2>
+    <div class="rbody">
+      <div id="trig-layout">
+        <button id="btn-fire" type="button" disabled>FIRE</button>
+        <div id="trig-col">
+          <div class="stepper">
+            <span class="s-lbl">LEAD S</span>
+            <button class="stp" type="button" data-f="lead" data-d="-1">&minus;</button>
+            <output id="out-lead">2.0</output>
+            <button class="stp" type="button" data-f="lead" data-d="1">+</button>
+          </div>
+          <div class="readout">
+            <span class="s-lbl">SPREAD</span>
+            <span id="spread-read">&mdash;</span>
+          </div>
+          <div id="override-row" hidden>
+            <label><input type="checkbox" id="chk-override"> OVERRIDE NO-GO</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── EXPOSURE ─── -->
+  <section id="exposure" class="region" style="grid-area:exposure">
+    <h2>EXPOSURE</h2>
+    <div class="rbody">
+      <div class="step-grid">
+        <div class="stepper">
+          <span class="s-lbl">EXP &micro;S</span>
+          <button class="stp" type="button" data-f="exp" data-d="-1">&minus;</button>
+          <output id="out-exp">2000</output>
+          <button class="stp" type="button" data-f="exp" data-d="1">+</button>
+        </div>
+        <div class="stepper">
+          <span class="s-lbl">GAIN</span>
+          <button class="stp" type="button" data-f="gain" data-d="-1">&minus;</button>
+          <output id="out-gain">4.0</output>
+          <button class="stp" type="button" data-f="gain" data-d="1">+</button>
+        </div>
+        <div class="stepper">
+          <span class="s-lbl">AWB R</span>
+          <button class="stp" type="button" data-f="awbr" data-d="-1">&minus;</button>
+          <output id="out-awbr">1.80</output>
+          <button class="stp" type="button" data-f="awbr" data-d="1">+</button>
+        </div>
+        <div class="stepper">
+          <span class="s-lbl">AWB B</span>
+          <button class="stp" type="button" data-f="awbb" data-d="-1">&minus;</button>
+          <output id="out-awbb">1.60</output>
+          <button class="stp" type="button" data-f="awbb" data-d="1">+</button>
+        </div>
+        <div class="stepper">
+          <span class="s-lbl">JPEG Q</span>
+          <button class="stp" type="button" data-f="q" data-d="-1">&minus;</button>
+          <output id="out-q">95</output>
+          <button class="stp" type="button" data-f="q" data-d="1">+</button>
+        </div>
+        <div class="stepper">
+          <span class="s-lbl">RES</span>
+          <select id="sel-res">
+            <option value="3280x2464">3280&times;2464</option>
+            <option value="1640x1232">1640&times;1232</option>
+          </select>
+        </div>
+      </div>
+      <div class="btnrow">
+        <button id="btn-apply" class="act" type="button">APPLY</button>
+        <button id="btn-meter" class="act" type="button">METER &#8907; AUTOCONFIGURE</button>
+        <label class="tgl"><input type="checkbox" id="chk-motion" checked> MOTION-SAFE</label>
+      </div>
+      <div id="apply-status" class="statusline">not applied this session</div>
+      <div class="btnrow">
+        <span class="s-lbl">PRESET</span>
+        <select id="sel-preset"><option value="">&mdash;</option></select>
+        <button id="btn-preset-save" type="button">SAVE AS</button>
+        <button id="btn-preset-del" type="button">DELETE</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SESSION ─── -->
+  <section id="session" class="region" style="grid-area:session">
+    <h2>SESSION</h2>
+    <div class="rbody">
+      <div id="subject-chips"></div>
+      <div class="btnrow">
+        <button id="btn-new-subject" type="button">+ NEW</button>
+        <input id="inp-new-subject" type="text" maxlength="32" placeholder="subject-name" hidden>
+      </div>
+      <div class="readout">
+        <span class="s-lbl">NEXT</span>
+        <span id="next-name">&mdash;</span>
+      </div>
+      <div class="btnrow">
+        <button id="btn-test" class="act" type="button">TEST FRAME</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── STORE ─── -->
+  <section id="store" class="region" style="grid-area:store">
+    <h2>STORE</h2>
+    <div class="rbody">
+      <div class="store-row">
+        <span class="s-lbl">DEST</span>
+        <span id="dest-val">&mdash;</span>
+        <span id="dest-count" class="cnt"></span>
+        <button id="btn-edit-smb" type="button">EDIT</button>
+      </div>
+      <div class="store-row">
+        <span class="s-lbl">NTP</span>
+        <span id="ntp-val">&mdash;</span>
+        <span id="ntp-count" class="cnt"></span>
+        <button id="btn-edit-ntp" type="button">EDIT</button>
+      </div>
+      <div class="store-row">
+        <span class="s-lbl">FREE</span>
+        <span id="free-val">&mdash;</span>
+      </div>
+      <div class="btnrow">
+        <button id="btn-update" type="button">UPDATE FLEET</button>
+        <button id="btn-preflight" type="button">PREFLIGHT</button>
+        <button id="btn-clearall" class="danger" type="button">CLEAR ALL</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── SESSIONS ─── -->
+  <section id="sessions" class="region" style="grid-area:sessions">
+    <h2>SESSIONS</h2>
+    <div class="rbody">
+      <div id="session-list"><div class="statusline">no sessions yet</div></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ─── TICKER ─── -->
+<footer id="ticker" title="click for full log">
+  <ol id="ticker-list"></ol>
+</footer>
+
+<!-- ─── OVERLAYS ─── -->
+<div id="overlay-root" hidden>
+  <div id="overlay-backdrop"></div>
+  <div id="overlay-stack"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
