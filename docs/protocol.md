@@ -352,9 +352,12 @@ Any node-side failure replies with:
 
 ## Per-Pi identity
 
-Each Pi has a stable hostname `pi-NN` set at first boot from its eth0 MAC
-address (see `provision/first-boot.sh`). The hostname is what appears in `pi`
-fields. Files are named `<pi>.jpg`, never colliding across the rig.
+Each Pi's `pi` identifier is derived **directly from its eth0 MAC** (last 6 hex
+chars, e.g. `pi-a1b2c3`) by the daemon — see `pi_id()` in `node/picam_node.py`. It's
+unique **by construction**, so even cloned SD cards that share a hostname (e.g. imaged
+after `first-boot.sh` already ran) report **distinct** `pi` values and write
+non-colliding `<pi>.jpg` files. `provision/first-boot.sh` sets the *hostname* to the
+same value for convenience, but the protocol no longer depends on the hostname.
 
 ## Session ID convention
 

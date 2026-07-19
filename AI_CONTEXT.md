@@ -32,7 +32,7 @@ This file is dense and skips human-friendly framing. Read top to bottom before a
 
 6. **Per-Pi SMB push**, not central pull; each Pi runs `smbclient ... put`. — **UPDATED 2026-06-04: SMB target is now the Linux field-brain laptop's Samba `scans` share, not the Windows box. See decision #10.**
 
-7. **Hostname derived from eth0 MAC at first boot** (`pi-XXXXXX`). Stable across SD reflashes, unique by construction. RealityCapture aligns by image content, so positional labels aren't needed.
+7. **Hostname derived from eth0 MAC at first boot** (`pi-XXXXXX`). Stable across SD reflashes, unique by construction. RealityCapture aligns by image content, so positional labels aren't needed. **UPDATE 2026-07-19: the daemon's `pi_id()` now derives the `pi` identity from the eth0 MAC *directly* (not the hostname), so clones sharing a hostname (e.g. imaged after first-boot ran) still report unique `pi` values + `<pi>.jpg` filenames. `provision/fix-pi-hostnames.sh` re-derives hostnames on already-deployed duplicate clones (now cosmetic).**
 
 8. **Camera kept warm with continuous preview** since cold start is 200–500 ms (eats trigger budget). Fixed AE/AWB set via CONFIGURE before captures.
 

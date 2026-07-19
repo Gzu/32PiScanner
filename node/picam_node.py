@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import ctypes.util
+import functools
 import json
 import logging
 import os
@@ -215,8 +216,21 @@ class Camera:
 
 
 # ─── identity ───────────────────────────────────────────────────────────────
+@functools.lru_cache(maxsize=1)
 def pi_id() -> str:
-    """Stable identifier for this node — derives from hostname."""
+    """Stable, collision-free identifier for this node — derived from the eth0 MAC
+    (last 6 hex chars, e.g. 'pi-a1b2c3'), matching the first-boot hostname scheme.
+
+    Unlike the hostname, this is unique BY CONSTRUCTION: cloned SD cards that share a
+    hostname (e.g. imaged after first-boot.sh already ran) still report distinct `pi`
+    values and write non-colliding `<pi>.jpg` files. The MAC never changes at runtime,
+    so the result is cached. Falls back to the hostname on dev boxes with no eth0."""
+    try:
+        mac = Path("/sys/class/net/eth0/address").read_text().strip().replace(":", "")
+        if len(mac) >= 6:
+            return f"pi-{mac[-6:]}"
+    except OSError:
+        pass
     return socket.gethostname()
 
 
