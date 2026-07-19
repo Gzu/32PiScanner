@@ -186,6 +186,33 @@ class Camera:
             )
             return dest.stat().st_size
 
+    def meter(self, settle_s: float = 2.0) -> dict:
+        """Briefly enable AE/AWB, let them converge on the scene, read the values
+        the camera settled on, then restore the fixed manual state (re-disabling
+        auto, keeping the sensor warm). Returns exposure_us / analogue_gain / awb_gains.
+        The client averages these across the rig and sends one CONFIGURE."""
+        with self._lock:
+            if self._cam is None:
+                # dev box without a camera — echo current settings as a stand-in.
+                s = self.settings
+                return {
+                    "exposure_us": s.exposure_us,
+                    "analogue_gain": s.analogue_gain,
+                    "awb_gains": list(s.awb_gains),
+                }
+            self._cam.set_controls({"AeEnable": True, "AwbEnable": True})
+            time.sleep(settle_s)                 # let AE/AWB converge
+            md = self._cam.capture_metadata()
+            cg = md.get("ColourGains", self.settings.awb_gains)
+            result = {
+                "exposure_us": int(md.get("ExposureTime", self.settings.exposure_us)),
+                "analogue_gain": float(md.get("AnalogueGain", self.settings.analogue_gain)),
+                "awb_gains": [float(cg[0]), float(cg[1])],
+            }
+            # Restore the fixed manual settings (turns auto back off, stays warm).
+            self._apply_controls()
+            return result
+
 
 # ─── identity ───────────────────────────────────────────────────────────────
 def pi_id() -> str:
@@ -704,6 +731,31 @@ class Node:
             freed_mb=round(freed_bytes / (1024 * 1024), 1),
         )
 
+    def handle_meter(self, msg: dict, reply_to: tuple[str, int], sock: socket.socket) -> Optional[bytes]:
+        """Auto-meter the scene in a background thread (AE/AWB convergence takes
+        ~1–2 s); the thread sends METERED itself. Keeps the dispatch loop responsive."""
+        settle_s = float(msg.get("settle_ms", 2000)) / 1000.0
+        settle_s = max(0.2, min(settle_s, 10.0))
+        threading.Thread(
+            target=self._do_meter, args=(msg, settle_s, reply_to, sock), daemon=True,
+        ).start()
+        return None
+
+    def _do_meter(self, msg: dict, settle_s: float,
+                  reply_to: tuple[str, int], sock: socket.socket) -> None:
+        try:
+            m = self.camera.meter(settle_s)
+        except Exception as e:
+            sock.sendto(make_error(msg, "meter_failed", str(e)), reply_to)
+            return
+        reply = make_reply(
+            msg, "METERED",
+            exposure_us=m["exposure_us"],
+            analogue_gain=round(m["analogue_gain"], 3),
+            awb_gains=[round(m["awb_gains"][0], 3), round(m["awb_gains"][1], 3)],
+        )
+        sock.sendto(reply, reply_to)
+
 
 # ─── main loop ──────────────────────────────────────────────────────────────
 def main():
@@ -761,6 +813,8 @@ def main():
                 reply = node.handle_set_smb(msg)
             elif msg_type == "CLEAR":
                 reply = node.handle_clear(msg)
+            elif msg_type == "METER":
+                reply = node.handle_meter(msg, addr, sock)
             else:
                 reply = make_error(msg, "unknown_msg", msg_type or "")
         except Exception as e:

@@ -220,6 +220,56 @@ def cmd_set_smb(args) -> int:
     return 0 if reachable == total and total > 0 else 1
 
 
+def cmd_autoconfigure(args) -> int:
+    """Meter every camera on auto, average the results, then CONFIGURE the whole
+    rig to that average — scene-appropriate but fixed + identical across all Pis."""
+    sock = _open_socket()
+    print(f"metering all cameras on auto ({args.settle:.1f}s settle)…")
+    meter_id = _send_triple(sock, {"msg": "METER", "settle_ms": int(args.settle * 1000)})
+    replies = _collect_replies(sock, meter_id, timeout_s=args.settle + 4.0, expected=args.expected)
+
+    metered = [r for r in replies if r.msg_type == "METERED"]
+    for r in (r for r in replies if r.msg_type == "ERROR"):
+        print(f"  ✗ {r.pi:10} ERROR {r.payload.get('reason')}: {r.payload.get('detail', '')}")
+    if not metered:
+        print("no METERED replies — aborting")
+        return 1
+
+    n = len(metered)
+    exps = [r.payload["exposure_us"] for r in metered]
+    gains = [r.payload["analogue_gain"] for r in metered]
+    rs = [r.payload["awb_gains"][0] for r in metered]
+    bs = [r.payload["awb_gains"][1] for r in metered]
+    avg_exp = sum(exps) / n
+    avg_gain, avg_r, avg_b = sum(gains) / n, sum(rs) / n, sum(bs) / n
+
+    print(f"\nmetered {n} camera(s):")
+    print(f"  exposure_us  avg={avg_exp:7.0f}  range={min(exps)}–{max(exps)}")
+    print(f"  gain         avg={avg_gain:7.2f}  range={min(gains):.2f}–{max(gains):.2f}")
+    print(f"  awb [r,b]    avg=[{avg_r:.2f}, {avg_b:.2f}]")
+
+    if avg_exp > 2000:
+        print(f"\n  ⚠ averaged exposure {avg_exp:.0f}µs > 2000µs — long for moving subjects "
+              f"(rolling-shutter blur risk).\n    Add light, or pass --max-exposure-us 2000 "
+              f"to cap it (raise gain / brightness to compensate).")
+    if args.max_exposure_us and avg_exp > args.max_exposure_us:
+        print(f"  clamping exposure {avg_exp:.0f} → {args.max_exposure_us}µs")
+        avg_exp = args.max_exposure_us
+
+    print("\napplying averaged settings to the rig…")
+    cfg_id = _send_triple(sock, {
+        "msg": "CONFIGURE",
+        "exposure_us": int(round(avg_exp)),
+        "analogue_gain": round(avg_gain, 2),
+        "awb_gains": [round(avg_r, 2), round(avg_b, 2)],
+        "resolution": list(args.resolution),
+        "jpeg_quality": args.quality,
+    })
+    cfg = _collect_replies(sock, cfg_id, timeout_s=args.timeout, expected=args.expected)
+    _print_replies(cfg, expected=args.expected)
+    return 0
+
+
 def cmd_clear(args) -> int:
     """Delete captured images on the Pis (one session, or all with --all)."""
     if args.all and not args.yes:
@@ -305,6 +355,17 @@ def build_parser() -> argparse.ArgumentParser:
     sp_ss.add_argument("--creds-ref", default="default",
                        help="credentials file name under /etc/picam_node/credentials/")
     sp_ss.set_defaults(func=cmd_set_smb)
+
+    sp_auto = sub.add_parser("autoconfigure",
+                             help="meter all cameras on auto, average, then CONFIGURE the rig")
+    sp_auto.add_argument("--settle", type=float, default=2.0,
+                         help="seconds to let each camera's AE/AWB converge")
+    sp_auto.add_argument("--max-exposure-us", type=int, default=None,
+                         help="cap the averaged exposure (e.g. 2000 to keep motion frozen)")
+    sp_auto.add_argument("--resolution", type=int, nargs=2, default=[3280, 2464],
+                         metavar=("W", "H"))
+    sp_auto.add_argument("--quality", type=int, default=95)
+    sp_auto.set_defaults(func=cmd_autoconfigure)
 
     sp_clr = sub.add_parser("clear", help="delete captured images on the Pis")
     g_clr = sp_clr.add_mutually_exclusive_group(required=True)

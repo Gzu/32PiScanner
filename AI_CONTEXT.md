@@ -59,6 +59,7 @@ UDP broadcast on closed LAN. Any device on the LAN can send any message includin
 |---|---|---|
 | `PING` | `PONG` (one per Pi) | discovery + health; returns `ntp{server,synced,offset_ms,stratum}` and `smb{server,share,credentials_ref,reachable,last_check_age_s,last_error}` |
 | `CONFIGURE` | `CONFIGURED` | lock exposure/gain/wb/resolution/quality |
+| `METER` | `METERED` | run auto AE/AWB briefly, report settled values; client averages → CONFIGURE (`autoconfigure`) |
 | `CAPTURE` | `CAPTURED` | absolute-time trigger; `trigger_at_unix` must be 0.2s–60s in future |
 | `UPLOAD` | `UPLOADED` | SMB push; `dest`/`credentials_ref` optional (fall back to stored SET_SMB) |
 | `SET_NTP` | `NTP_SET` | rewrites `/etc/chrony/chrony.conf` atomically + restarts chronyd (~30s reconvergence) |

@@ -289,7 +289,36 @@ Synchronous (a quick filesystem op), so the node replies directly.
 also prevents path traversal, and deletion is confined to the node's captures
 directory. Anything else replies `ERROR { reason: "bad_session_id" }`.
 
-### 8. `ERROR` (reply only)
+### 8. `METER` → `METERED`
+
+Ask every camera to briefly run **auto** exposure + white-balance, converge on the
+scene, and report the values it settled on. The client averages these across the rig
+and sends one `CONFIGURE` with the average — giving scene-appropriate settings that
+are still **fixed and identical** on every Pi (no per-frame auto drift). Metering
+takes ~1–2 s per Pi (AE/AWB convergence); the node then re-locks its previous manual
+settings and replies when done.
+
+**Request**
+```json
+{ "v": 1, "id": "<uuid>", "msg": "METER", "settle_ms": 2000 }   // settle_ms optional, default 2000
+```
+
+**Reply**
+```json
+{
+  "v": 1, "id": "<uuid>", "msg": "METERED", "pi": "pi-07",
+  "exposure_us": 1830,           // auto-metered shutter
+  "analogue_gain": 3.7,
+  "awb_gains": [1.75, 1.62]      // [red, blue]
+}
+```
+
+The CLI `autoconfigure` flow is: broadcast `METER` → average the `METERED` replies →
+broadcast `CONFIGURE` with the average. **Caveat:** in a dim scene, auto may pick a
+long exposure that reintroduces rolling-shutter blur; the CLI warns when the average
+exceeds 2000 µs and offers `--max-exposure-us` to cap it (compensate with light/gain).
+
+### 9. `ERROR` (reply only)
 
 Any node-side failure replies with:
 ```json
@@ -319,6 +348,7 @@ Any node-side failure replies with:
 - `bad_smb_config` — `SET_SMB` payload missing required fields
 - `smb_write_failed` — persistence of `SET_SMB` to disk failed
 - `bad_session_id` — `session_id` (on `CAPTURE`/`CLEAR`) has chars outside `[a-z0-9_-]`
+- `meter_failed` — `METER` could not read auto-exposure metadata (detail = error)
 
 ## Per-Pi identity
 
