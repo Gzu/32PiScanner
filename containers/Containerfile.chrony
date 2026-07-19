@@ -7,6 +7,8 @@ RUN apt-get update \
 
 # Config is bind-mounted read-only at /etc/chrony/chrony.conf (Debian path).
 # -d runs chronyd in the foreground (no fork), logging to stderr.
-# NOTE: serve-only config — no SYS_TIME capability is granted, so chronyd cannot
-# and does not touch the host clock.
-ENTRYPOINT ["chronyd", "-d", "-f", "/etc/chrony/chrony.conf"]
+# -x DISABLES clock control: chronyd never calls adjtimex/settimeofday, so it needs
+#    no CAP_SYS_TIME and cannot touch the shared host clock. Without -x, chronyd
+#    tries to discipline the clock at startup, fails (no CAP_SYS_TIME granted), and
+#    exits with a fatal error -> Podman restart loop. -x is the serve-only guarantee.
+ENTRYPOINT ["chronyd", "-d", "-x", "-f", "/etc/chrony/chrony.conf"]

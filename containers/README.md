@@ -16,7 +16,7 @@ because the service internals are the Debian base image, not your host.
 | Service | Constraint | Consequence |
 |---|---|---|
 | **DHCP** | `DISCOVER` is an L2 broadcast to `255.255.255.255:67` | A NAT bridge never receives it → **must use host networking** (or macvlan). Compose uses `network_mode: host`. |
-| **NTP** | There is **one** kernel clock shared by host + containers | We run chrony **serve-only** (`local stratum 10`, no `SYS_TIME`): it reads the host clock and answers queries but never steps/slews it. Zero host-clock impact. |
+| **NTP** | There is **one** kernel clock shared by host + containers | We run chrony **serve-only**: `local stratum 10` + the **`-x`** flag (in `Containerfile.chrony`), which disables clock control entirely. It reads the host clock and answers queries but never steps/slews it — no `CAP_SYS_TIME`, zero host-clock impact. (Without `-x`, chronyd tries to discipline the clock at startup, fails for lack of `CAP_SYS_TIME`, and Podman restart-loops it.) |
 
 So the isolation you get is **packaging + config + lifecycle** (the clean-teardown
 win), not full network sandboxing — DHCP is inherently a host-network citizen. If
