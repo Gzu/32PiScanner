@@ -60,6 +60,19 @@ Assumes **Ubuntu 22.04/24.04 Desktop** (or Debian 12) — NetworkManager, system
 and ufw. **The laptop needs internet for `apt` in this step**; it does not need
 internet in the field afterward.
 
+> **Kali Linux** is Debian-based, so this whole guide and `setup-fieldbrain-ubuntu.sh`
+> apply as-is (`apt`, `chrony`/`smbd` services, `/etc/chrony/chrony.conf`, nmcli).
+> Three small differences to expect:
+> - **No firewall by default.** Kali ships neither ufw active nor, on some images,
+>   installed. §1.7 is then a no-op — the script's ufw block auto-skips, and a
+>   trusted isolated rig LAN needs no firewall anyway. (To use it: `sudo apt install ufw`.)
+> - **Wired NIC is usually `eth0`.** Confirm with `ip -o link show`.
+> - **Running as root.** If your Kali user *is* root, drop the `sudo` prefixes (they're
+>   harmless if kept). The rig services run fine either way.
+>
+> Prefer no host packages at all? The container variant in `../containers/` is
+> host-distro-independent and gives clean teardown — see its README.
+
 ### 1.0 Automated setup (recommended)
 
 The whole of §1 is scripted. From the repo:

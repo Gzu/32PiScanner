@@ -45,6 +45,17 @@ Also edit **`dnsmasq.conf`** and set `interface=` to that same NIC.
 
 ## Bring up
 
+Fast path — `setup.sh` does the static IP, pins `interface=`, and starts the
+containers in one shot:
+
+```bash
+cd containers
+sudo RIG_NIC=eth0 ./setup.sh      # find your NIC: ip -o link show
+sudo ./setup.sh --down            # tear it all down
+```
+
+Or do it by hand (after the static-IP step above):
+
 ```bash
 cd containers
 sudo podman-compose up -d --build
