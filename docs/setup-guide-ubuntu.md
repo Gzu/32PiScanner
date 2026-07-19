@@ -318,22 +318,24 @@ sudo NTP_SERVER=192.168.50.1 ./install.sh  # ← the Ubuntu laptop's rig IP
 This installs `picam_node`, the systemd unit, the chrony **client** config pointed
 at the laptop, and a placeholder SMB credentials file.
 
-### 2.5 Set the real SMB password + first-boot hostname
+### 2.5 First-boot hostname (SMB is configured centrally — see §4)
 
-Put the `scanner` password from §1.6 into the credentials file:
+Reboot once so the hostname is derived from the eth0 MAC:
 
 ```bash
-sudo nano /etc/picam_node/credentials/default
-#   username=scanner
-#   password=<the smbpasswd you set on the laptop>
-#   domain=WORKGROUP
-sudo systemctl restart picam_node
-
 sudo reboot        # first reboot only — sets hostname to pi-XXXXXX from the MAC
 ```
 
 After reboot, `hostname` should read `pi-XXXXXX` and
 `systemctl status picam_node` should be **active (running)**.
+
+> **Don't hand-edit `/etc/picam_node/credentials/default`.** It only sets the
+> *password* and leaves the SMB **destination** unset — so `cli.py ping` reports
+> *"no server configured"* and `upload` would need an explicit `--dest`. Instead,
+> configure SMB for the whole rig at once with **`cli.py set-smb` (§4)**, which
+> writes the destination (`/etc/picam_node/smb.yaml`) **and** the credentials file
+> **together**, keeping them in sync. The `default` file `install.sh` drops is just a
+> placeholder that `set-smb` overwrites.
 
 ### 2.6 Clone to the other 31 cards
 
@@ -344,8 +346,10 @@ sudo dd if=/dev/sdX of=master.img bs=4M status=progress
 ```
 
 The first-boot service re-derives the hostname from **each card's host Pi's MAC**, so
-you never get collisions even though the image is identical. The chrony config and
-`scanner` credentials are deliberately identical across all 32.
+you never get collisions even though the image is identical. The chrony config is
+identical across all 32 by design; SMB (destination **and** credentials) is applied
+to every Pi at once **after** assembly via `cli.py set-smb` (§4) — so you never edit
+32 cards for it.
 
 ---
 
@@ -393,18 +397,22 @@ python3 cli.py capture --session smoke01 --leadtime 2.0
 Note the `size_bytes` from `capture` — that's your **exact** v2.1 JPEG size; plug it
 into `(32 × size_MB × 8.389) / goodput_Mbps` for real transfer times.
 
-Then push to the laptop's Samba share and confirm the files land:
-
-```bash
-python3 cli.py upload --session smoke01 --dest smb://192.168.50.1/scans/
-ls /srv/scans/smoke01/          # should show 32 files named pi-XXXXXX.jpg
-```
-
-(Or set the default once so `upload` needs no `--dest`:)
+Configure SMB for the whole rig — **this is the step that provisions SMB on the
+Pis.** It writes the destination (`/etc/picam_node/smb.yaml`) **and** the credentials
+file on every Pi in one shot, and probes reachability:
 
 ```bash
 python3 cli.py set-smb --server 192.168.50.1 --share scans \
-        --username scanner --password <pw>
+        --username scanner --password 'THE_SCANNER_PASSWORD'
+#   → reports N/N Pis can reach //192.168.50.1/scans on :445
+python3 cli.py ping             # SMB should now show ✓ //192.168.50.1/scans
+```
+
+Then push and confirm the files land — no `--dest` needed, it uses the stored default:
+
+```bash
+python3 cli.py upload --session smoke01
+ls /srv/scans/smoke01/          # should show one pi-XXXXXX.jpg per Pi
 ```
 
 ---
@@ -449,7 +457,8 @@ The Windows box never touches the rig LAN during a shoot. At the desk:
 | Some Pis missing from `ping` | didn't get a DHCP lease, or broadcast filtered | `ip addr` on the Pi (should be `192.168.50.1xx`); confirm dnsmasq is up; use an **unmanaged** switch (no IGMP/STP filtering). |
 | No Pis get an IP | dnsmasq bound to wrong NIC, or another DHCP server present | check `interface=` in dnsmasq.conf; ensure nothing else on the LAN serves DHCP (dueling DHCP). |
 | `camera_unavailable` in PONG | v2.1 ribbon lifted / reversed | `rpicam-hello --list-cameras`; re-seat ribbon, blue stripe toward Ethernet side. |
-| `upload_failed: NT_STATUS_LOGON_FAILURE` | wrong SMB password on Pi | fix `/etc/picam_node/credentials/default`, `systemctl restart picam_node`. Confirm `scanner` password via `smbclient -L localhost -U scanner` on the laptop. |
+| `ping` → SMB **no server configured** | `set-smb` never run — the Pi has no stored destination | run `cli.py set-smb …` (§4). Hand-editing `credentials/default` alone does **not** set the server. |
+| `upload_failed: NT_STATUS_LOGON_FAILURE` | wrong SMB password on the Pis | re-run `cli.py set-smb … --password <correct>` (rewrites creds on all Pis at once). Confirm the `scanner` password with `smbclient -L localhost -U scanner` on the laptop. |
 | `upload_failed: NT_STATUS_ACCESS_DENIED` | `/srv/scans` not writable by `scanner` | `sudo chown scanner:scanner /srv/scans`. |
 | Windows can't open `\\192.168.50.1\scans` | not on same network as laptop | put both on one LAN or a direct cable; re-check the laptop IP. |
 
@@ -457,7 +466,9 @@ The Windows box never touches the rig LAN during a shoot. At the desk:
 
 ## Appendix — what stays identical across all 32 Pis
 
-`chrony-client.conf` (pointed at `192.168.50.1`), the `scanner` credentials file, and
-the `picam_node` install are byte-identical on every card **by design** — only the
-hostname differs, and that's derived at first boot. This is what makes the `dd`-clone
+`chrony-client.conf` (pointed at `192.168.50.1`) and the `picam_node` install are
+byte-identical on every card **by design** — only the hostname differs, and that's
+derived at first boot. SMB config (`smb.yaml` + credentials) is **not** baked into
+the image; it's pushed to all Pis at once with `cli.py set-smb` after assembly, which
+keeps the destination and credentials in sync. This is what makes the `dd`-clone
 workflow safe.
