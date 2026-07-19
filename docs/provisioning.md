@@ -4,8 +4,7 @@
 > **Windows RC box served NTP**. The current architecture uses a **Linux laptop
 > field brain** (DHCP + NTP + SMB) with the Windows desktop for **reconstruction
 > only**. For the current end-to-end setup, follow
-> **[`setup-guide-ubuntu.md`](setup-guide-ubuntu.md)** or
-> **[`setup-guide-fedora.md`](setup-guide-fedora.md)** instead. The **Pi-side steps
+> **[`setup-guide-ubuntu.md`](setup-guide-ubuntu.md)** (Debian/Kali) instead. The **Pi-side steps
 > here** (base image, `install.sh`, SD cloning, camera checks) are still accurate —
 > only the NTP/SMB *server* moved from Windows to the Linux laptop.
 

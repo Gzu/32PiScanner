@@ -6,8 +6,6 @@ End-to-end bring-up for the rig with the **split architecture**:
 - **Windows desktop** = reconstruction only — runs RealityCapture offline, after the shoot.
 - **32× Raspberry Pi 3B** + **Camera Module v2.1 (IMX219, 8 MP)**.
 
-> Running Fedora on the laptop instead? Use **`setup-guide-fedora.md`** (different
-> package manager, chrony path, firewall, and a required SELinux step).
 > This guide supersedes `provisioning.md` for this topology. No `node/` or `tools/`
 > code changes are required — SMB is SMB, and the Pi's chrony client just points
 > at the laptop's IP instead of a Windows box.
@@ -129,6 +127,17 @@ sudo nmcli con add type ethernet ifname <RIG_NIC> con-name rig \
 sudo nmcli con up rig
 ```
 
+Then add a **limited-broadcast route** — an offline rig has no default gateway, so
+`cli.py`'s `255.255.255.255` broadcast can't egress and `cli.py ping` fails with
+*network unreachable*:
+
+```bash
+sudo nmcli con mod rig +ipv4.routes "255.255.255.255/32"
+sudo nmcli con up rig
+```
+
+(`setup-fieldbrain-ubuntu.sh` / `containers/setup.sh` do this automatically.)
+
 Verify: `ip addr show <RIG_NIC>` shows `192.168.50.1/24`.
 
 ### 1.4 NTP server (chrony)
@@ -227,8 +236,7 @@ smbclient -L localhost -U scanner      # should list the 'scans' share
 ```
 
 > Ubuntu ships an AppArmor profile for Samba, but it does not restrict arbitrary
-> share paths by default, so `/srv/scans` works with no extra step. (This is the one
-> place Ubuntu is *simpler* than Fedora, which needs an SELinux label here.)
+> share paths by default, so `/srv/scans` works with no extra step.
 
 ### 1.7 Firewall
 
@@ -435,13 +443,14 @@ The Windows box never touches the rig LAN during a shoot. At the desk:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| `cli.py` → **network unreachable** (no replies at all) | offline rig has no default route, so the `255.255.255.255` broadcast can't egress from the laptop | `sudo nmcli con mod rig +ipv4.routes "255.255.255.255/32" && sudo nmcli con up rig`. The setup scripts now do this automatically. |
 | `clock_unsynced` from CAPTURE | chrony not converged, or Pi can't reach `192.168.50.1:123` | `chronyc tracking` on a Pi; check laptop's `chrony` is running + ufw allows the subnet (§1.7). Wait 30–60 s. |
 | Trigger spread > 20 ms | one Pi on a bad link, or NTP flaky | test the outlier Pi alone; confirm all on the Gigabit switch, not a 100 M hop. |
 | Some Pis missing from `ping` | didn't get a DHCP lease, or broadcast filtered | `ip addr` on the Pi (should be `192.168.50.1xx`); confirm dnsmasq is up; use an **unmanaged** switch (no IGMP/STP filtering). |
 | No Pis get an IP | dnsmasq bound to wrong NIC, or another DHCP server present | check `interface=` in dnsmasq.conf; ensure nothing else on the LAN serves DHCP (dueling DHCP). |
 | `camera_unavailable` in PONG | v2.1 ribbon lifted / reversed | `rpicam-hello --list-cameras`; re-seat ribbon, blue stripe toward Ethernet side. |
 | `upload_failed: NT_STATUS_LOGON_FAILURE` | wrong SMB password on Pi | fix `/etc/picam_node/credentials/default`, `systemctl restart picam_node`. Confirm `scanner` password via `smbclient -L localhost -U scanner` on the laptop. |
-| `upload_failed: NT_STATUS_ACCESS_DENIED` | `/srv/scans` not writable by `scanner` | `sudo chown scanner:scanner /srv/scans` (Ubuntu needs no SELinux step). |
+| `upload_failed: NT_STATUS_ACCESS_DENIED` | `/srv/scans` not writable by `scanner` | `sudo chown scanner:scanner /srv/scans`. |
 | Windows can't open `\\192.168.50.1\scans` | not on same network as laptop | put both on one LAN or a direct cable; re-check the laptop IP. |
 
 ---

@@ -3,8 +3,8 @@
 Run the rig's **DHCP** and **NTP** services as throwaway Podman containers instead
 of installing dnsmasq/chrony onto the laptop. Optimized for **clean teardown**:
 nothing lands in the host package set or `/etc`, and removal leaves the host as it
-was. Host-distro-independent — the same files work on **Kali / Debian / Fedora /
-Ubuntu** because the service internals are the Debian base image, not your host.
+was. Host-distro-independent — the same files work on **Kali / Debian / Ubuntu**
+because the service internals are the Debian base image, not your host.
 
 > Scope: DHCP + NTP only (what you asked about). **SMB stays on the host** — it
 > writes captured JPEGs to `/srv/scans` on the laptop's disk, so a host Samba (or
@@ -39,7 +39,12 @@ sudo nmcli con add type ethernet ifname eth0 con-name rig \
      ipv4.method manual ipv4.addresses 192.168.50.1/24 \
      ipv4.gateway "" ipv4.dns "" ipv6.method disabled autoconnect yes
 sudo nmcli con up rig
+sudo nmcli con mod rig +ipv4.routes "255.255.255.255/32"   # limited-broadcast route for cli.py
+sudo nmcli con up rig
 ```
+
+> Without that broadcast route, `cli.py ping` fails with *network unreachable* on an
+> offline rig (no default gateway). `setup.sh` adds it for you.
 
 Also edit **`dnsmasq.conf`** and set `interface=` to that same NIC.
 
@@ -59,6 +64,20 @@ Or do it by hand (after the static-IP step above):
 ```bash
 cd containers
 sudo podman-compose up -d --build
+```
+
+**Keeping the laptop awake.** `setup.sh` also disables sleep at the systemd layer —
+it masks the sleep/suspend targets and installs
+`/etc/systemd/logind.conf.d/10-rig-nosleep.conf` (`HandleLidSwitch=ignore`,
+`IdleAction=ignore`). This is necessary because the desktop's *"do nothing on idle"*
+toggle only governs the **idle timeout** in your session — it does **not** control
+the **lid switch**, which `systemd-logind` handles separately and suspends on by
+default. So a lid-closed / headless field brain will otherwise sleep despite the GUI
+setting. `setup.sh --down` reverses both (unmask + remove the drop-in). If you bring
+the containers up **by hand** instead of via `setup.sh`, apply this yourself:
+
+```bash
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 ```
 
 Verify:

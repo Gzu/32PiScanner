@@ -9,7 +9,7 @@ This file is dense and skips human-friendly framing. Read top to bottom before a
 - Goal: full-body / full-subject photogrammetry rig for **humans and animals**
 - Reconstruction: **RealityCapture** (Windows, user's licensed tool — not Meshroom/COLMAP)
 - Repo root: `/Users/gzu/dev/32PiScanner`
-- Status: scaffolding complete; nothing run on real hardware yet
+- Status: **first Pi validated on hardware (2026-07-19)** — CONFIGURE→CAPTURE→UPLOAD work end-to-end; SMB upload returns `UPLOADED` (credentials + Samba target + `upload_smb` proven). Trigger spread across ≥2 Pis still unmeasured (needs the SD clone). See Outstanding work #1.
 
 ## Immutable hardware constraints
 
@@ -38,7 +38,7 @@ This file is dense and skips human-friendly framing. Read top to bottom before a
 
 9. **Runtime config via SET_NTP / SET_SMB** added in iteration 2 — no need to edit 32 SD cards to repoint NTP or SMB target.
 
-10. **Split field-brain architecture (decided 2026-06-04).** A **Linux laptop** (Ubuntu *or* Fedora — user's laptop is Fedora) is the portable field brain: it serves **DHCP (dnsmasq) + NTP (chrony) + SMB (Samba)** to the rig on `192.168.50.0/24`. The **Windows desktop is reconstruction-only** — it never joins the rig LAN during a shoot; images are pulled afterward from the laptop's `//192.168.50.1/scans` share into RealityCapture. This **supersedes the NTP-on-Windows / SMB-to-Windows parts of decisions #3 and #6** (no code change needed — SMB is SMB, the Pi chrony client just points at the laptop IP). Internet is optional and only needed for one-time `apt` provisioning; offline the laptop serves `local stratum 10`. Full guides: `docs/setup-guide-{ubuntu,fedora}.md`; one-shot provisioners: `provision/setup-fieldbrain-{ubuntu,fedora}.sh`.
+10. **Split field-brain architecture (decided 2026-06-04).** A **Linux laptop** (Debian-based; user's laptop is Kali) is the portable field brain: it serves **DHCP (dnsmasq) + NTP (chrony) + SMB (Samba)** to the rig on `192.168.50.0/24`. The **Windows desktop is reconstruction-only** — it never joins the rig LAN during a shoot; images are pulled afterward from the laptop's `//192.168.50.1/scans` share into RealityCapture. This **supersedes the NTP-on-Windows / SMB-to-Windows parts of decisions #3 and #6** (no code change needed — SMB is SMB, the Pi chrony client just points at the laptop IP). Internet is optional and only needed for one-time `apt` provisioning; offline the laptop serves `local stratum 10`. Full guide: `docs/setup-guide-ubuntu.md` (Debian/Kali); one-shot provisioner: `provision/setup-fieldbrain-ubuntu.sh`. Also containerized (clean teardown): `containers/` (compose + quadlets).
 
 ## Dominant quality risk (cannot fully solve in software)
 
@@ -76,8 +76,7 @@ docs/
   protocol.md                    UDP wire spec (the contract)
   architecture.md                design rationale (why each decision)
   provisioning.md                SUPERSEDED (Windows-NTP topology) — see setup-guide-*.md
-  setup-guide-ubuntu.md          full bring-up: Ubuntu field brain + Windows RC desktop
-  setup-guide-fedora.md          full bring-up: Fedora field brain + Windows RC desktop
+  setup-guide-ubuntu.md          full bring-up: Ubuntu/Debian/Kali field brain + Windows RC desktop
 node/
   picam_node.py                  ~600 lines, single-file daemon, runs as root
   requirements.txt               PyYAML only (picamera2 from apt)
@@ -87,8 +86,8 @@ provision/
   chrony-server-pi.conf          OPTIONAL: if one Pi serves NTP instead of RC box
   first-boot.sh                  sets hostname from MAC, then self-disables
   install.sh                     idempotent, sudo NTP_SERVER=x.x.x.x ./install.sh
-  setup-fieldbrain-ubuntu.sh     one-shot: DHCP+NTP+SMB on an Ubuntu/Debian laptop
-  setup-fieldbrain-fedora.sh     one-shot: DHCP+NTP+SMB on a Fedora laptop (SELinux-aware)
+  setup-fieldbrain-ubuntu.sh     one-shot: DHCP+NTP+SMB on an Ubuntu/Debian/Kali laptop
+  teardown-fieldbrain-ubuntu.sh  reverts setup-fieldbrain-ubuntu.sh (--keep-smb / --purge-data)
 tools/
   cli.py                         subcommands: ping configure capture upload set-ntp set-smb session
 android/                         EMPTY — Kotlin/Compose app not scaffolded yet
@@ -138,7 +137,8 @@ python3 cli.py session --session 2026-05-26_rex_take01 --dest smb://rc-box/scans
 
 ## Outstanding work (priority order)
 
-1. **Validate on one real Pi** — run `session` end-to-end, measure trigger spread (target <5 ms wired). User has not yet done this.
+1. **Validate on one real Pi** — *PARTIALLY DONE (2026-07-19).* CONFIGURE → CAPTURE → UPLOAD verified end-to-end on the first Pi against the Linux field-brain laptop; `UPLOAD` returns `UPLOADED`. Real v2.1 `size_bytes` now available from the CAPTURED reply for transfer-time math. **Still TODO:** `dd`-clone the SD to ≥2 Pis and measure trigger spread (target <5 ms wired) — spread is undefined on a single node.
+   - Bring-up gotchas observed: (a) `/etc/picam_node/credentials/` is `0700` root-owned, so shell **tab-completion silently fails** for a normal user — edit `default` with `sudo` and the **full path typed by hand** (the "no such file" confusion was a missing `sudo`/truncated path, not a missing file). (b) `install.sh` is `set -euo pipefail`, so a failed `apt` (no internet) aborts it **before** creating `/etc/picam_node` — the Pi needs internet for that one-time install.
 2. **Scaffold Android app** — `android/` directory exists but empty. Kotlin + Jetpack Compose. Four screens: Devices (PING grid), Settings (CONFIGURE + SET_NTP/SET_SMB), Capture (shutter + leadtime slider), Sessions (history + UPLOAD retry). Reuse protocol semantics from `tools/cli.py` and `docs/protocol.md` verbatim.
 3. **Calibration tool** `tools/calibrate.py` — capture ChArUco board from all cams, solve intrinsics+extrinsics with OpenCV, export RealityCapture camera registration XML.
 4. **Rig geometry / lighting doc** — camera placement for humans+animals, lens choices, continuous-light selection. Currently undecided whether one rig serves both subjects or separate.

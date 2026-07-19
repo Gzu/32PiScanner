@@ -7,7 +7,7 @@
 #   • SMB   via Samba     (//<ip>/scans — where captured JPEGs land)
 #
 # Idempotent: safe to re-run. Any file it overwrites is backed up once as <file>.orig.
-# Target: Ubuntu 22.04/24.04 Desktop or Debian 12 (NetworkManager + ufw). No SELinux.
+# Target: Ubuntu/Debian/Kali Desktop (NetworkManager + ufw).
 #
 # Usage:
 #   sudo RIG_NIC=enp0s31f6 SMB_PASS=secret ./setup-fieldbrain-ubuntu.sh
@@ -77,6 +77,13 @@ nmcli con add type ethernet ifname "$RIG_NIC" con-name "$CON_NAME" \
     ipv4.method manual ipv4.addresses "$RIG_IP/$RIG_CIDR" \
     ipv4.gateway "" ipv4.dns "" ipv6.method disabled autoconnect yes >/dev/null
 nmcli con up "$CON_NAME" >/dev/null
+
+# Limited-broadcast route: cli.py broadcasts to 255.255.255.255, which has no
+# matching route on an offline rig (no default gateway) -> "network unreachable".
+# Pin it to the connection (persists across reboots) and apply it now.
+nmcli con mod "$CON_NAME" +ipv4.routes "255.255.255.255/32" >/dev/null 2>&1 || true
+nmcli con up "$CON_NAME" >/dev/null 2>&1 || true
+ip route replace 255.255.255.255/32 dev "$RIG_NIC" 2>/dev/null || true
 
 # ── 4. NTP (chrony server) ──────────────────────────────────────────────────
 log "writing /etc/chrony/chrony.conf (serving $SUBNET)"

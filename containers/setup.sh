@@ -40,6 +40,10 @@ if [[ "$ACTION" == "down" ]]; then
   log "stopping + removing containers"
   ( cd "$DIR" && compose down ) || true
   nmcli con delete "$CON_NAME" >/dev/null 2>&1 && log "removed static-IP connection '$CON_NAME'" || true
+  log "re-enabling sleep (unmask targets + remove logind override)"
+  systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target >/dev/null 2>&1 || true
+  rm -f /etc/systemd/logind.conf.d/10-rig-nosleep.conf
+  systemctl reload systemd-logind >/dev/null 2>&1 || true
   log "down. Images kept for fast restart — remove with: sudo podman rmi rig-dhcp rig-ntp"
   exit 0
 fi
@@ -68,6 +72,30 @@ nmcli con add type ethernet ifname "$RIG_NIC" con-name "$CON_NAME" \
     ipv4.method manual ipv4.addresses "$RIG_IP/$RIG_CIDR" \
     ipv4.gateway "" ipv4.dns "" ipv6.method disabled autoconnect yes >/dev/null
 nmcli con up "$CON_NAME" >/dev/null
+
+# Limited-broadcast route: cli.py broadcasts to 255.255.255.255, which has no
+# matching route on an offline rig (no default gateway) -> "network unreachable".
+# Pin it to the connection (persists across reboots) and apply it now.
+nmcli con mod "$CON_NAME" +ipv4.routes "255.255.255.255/32" >/dev/null 2>&1 || true
+nmcli con up "$CON_NAME" >/dev/null 2>&1 || true
+ip route replace 255.255.255.255/32 dev "$RIG_NIC" 2>/dev/null || true
+
+# Keep the field-brain awake. The desktop "do nothing on idle" toggle only covers
+# the idle timeout in your session — NOT the lid switch, which systemd-logind
+# handles separately (default: suspend). Block it at the systemd layer instead.
+log "disabling sleep (mask sleep targets + logind lid/idle ignore)"
+systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target >/dev/null 2>&1 || true
+mkdir -p /etc/systemd/logind.conf.d
+cat > /etc/systemd/logind.conf.d/10-rig-nosleep.conf <<'EOF'
+# 32PiScanner field brain — keep the laptop awake. Installed by containers/setup.sh,
+# removed by `setup.sh --down`.
+[Login]
+HandleLidSwitch=ignore
+HandleLidSwitchExternalPower=ignore
+HandleLidSwitchDocked=ignore
+IdleAction=ignore
+EOF
+systemctl reload systemd-logind >/dev/null 2>&1 || true   # reload = safe, keeps your session
 
 log "pinning dnsmasq interface=$RIG_NIC"
 sed -i -E "s/^interface=.*/interface=${RIG_NIC}/" "$DIR/dnsmasq.conf"

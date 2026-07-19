@@ -4,7 +4,7 @@
 # services live entirely in containers with bind-mounted configs. Remove them and
 # the host is exactly as it was (bar the one static-IP connection — see README).
 #
-# Host distro-independent: works the same on Kali / Debian / Fedora / Ubuntu,
+# Host distro-independent: works the same on Kali / Debian / Ubuntu,
 # because the service internals are the Debian base image, not your host.
 #
 # Run rootful (sudo): DHCP needs privileged ports (67) + raw sockets, and both
@@ -29,7 +29,7 @@ services:
       - NET_BIND_SERVICE
     restart: unless-stopped
     volumes:
-      # On an SELinux host (Fedora) append ',Z' to relabel. Kali/Debian: leave as-is.
+      # On an SELinux host append ',Z' to relabel. Kali/Debian: leave as-is.
       - ./dnsmasq.conf:/etc/dnsmasq.conf:ro
 
   ntp:
