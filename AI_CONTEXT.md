@@ -24,19 +24,21 @@ This file is dense and skips human-friendly framing. Read top to bottom before a
 
 2. **Tablet is replaceable thin client, not the brain.** MVP control is `tools/cli.py` from macOS. Target is **Android tablet, Kotlin + Jetpack Compose** (chosen over Flutter and Termux). The protocol is identical for both.
 
-3. **NTP source = Windows RC box running Meinberg NTP** (not stock w32time which is ~1s precision). Fallback: one Pi runs chronyd in server mode (`provision/chrony-server-pi.conf`). Android tablet was explicitly rejected as NTP source (Doze mode kills it).
+3. **NTP source = Windows RC box running Meinberg NTP** (not stock w32time which is ~1s precision). Fallback: one Pi runs chronyd in server mode (`provision/chrony-server-pi.conf`). Android tablet was explicitly rejected as NTP source (Doze mode kills it). — **UPDATED 2026-06-04: NTP is now served by the Linux field-brain laptop via chrony, not the Windows box. See decision #10.**
 
 4. **Absolute Unix timestamps for CAPTURE**, never relative leadtime. Pis use `clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME)`. chrony keeps the wall clocks aligned (<5 ms across rig on wired LAN expected).
 
 5. **3× redundant UDP send + UUID dedupe** for reliability. Don't reach for TCP — TCP has no broadcast.
 
-6. **Per-Pi SMB push to RC box**, not central pull. RC box exposes a Windows share; each Pi runs `smbclient ... put`.
+6. **Per-Pi SMB push**, not central pull; each Pi runs `smbclient ... put`. — **UPDATED 2026-06-04: SMB target is now the Linux field-brain laptop's Samba `scans` share, not the Windows box. See decision #10.**
 
 7. **Hostname derived from eth0 MAC at first boot** (`pi-XXXXXX`). Stable across SD reflashes, unique by construction. RealityCapture aligns by image content, so positional labels aren't needed.
 
 8. **Camera kept warm with continuous preview** since cold start is 200–500 ms (eats trigger budget). Fixed AE/AWB set via CONFIGURE before captures.
 
 9. **Runtime config via SET_NTP / SET_SMB** added in iteration 2 — no need to edit 32 SD cards to repoint NTP or SMB target.
+
+10. **Split field-brain architecture (decided 2026-06-04).** A **Linux laptop** (Ubuntu *or* Fedora — user's laptop is Fedora) is the portable field brain: it serves **DHCP (dnsmasq) + NTP (chrony) + SMB (Samba)** to the rig on `192.168.50.0/24`. The **Windows desktop is reconstruction-only** — it never joins the rig LAN during a shoot; images are pulled afterward from the laptop's `//192.168.50.1/scans` share into RealityCapture. This **supersedes the NTP-on-Windows / SMB-to-Windows parts of decisions #3 and #6** (no code change needed — SMB is SMB, the Pi chrony client just points at the laptop IP). Internet is optional and only needed for one-time `apt` provisioning; offline the laptop serves `local stratum 10`. Full guides: `docs/setup-guide-{ubuntu,fedora}.md`; one-shot provisioners: `provision/setup-fieldbrain-{ubuntu,fedora}.sh`.
 
 ## Dominant quality risk (cannot fully solve in software)
 
@@ -73,7 +75,9 @@ AI_CONTEXT.md                    this file
 docs/
   protocol.md                    UDP wire spec (the contract)
   architecture.md                design rationale (why each decision)
-  provisioning.md                Pi bring-up steps, troubleshooting table
+  provisioning.md                SUPERSEDED (Windows-NTP topology) — see setup-guide-*.md
+  setup-guide-ubuntu.md          full bring-up: Ubuntu field brain + Windows RC desktop
+  setup-guide-fedora.md          full bring-up: Fedora field brain + Windows RC desktop
 node/
   picam_node.py                  ~600 lines, single-file daemon, runs as root
   requirements.txt               PyYAML only (picamera2 from apt)
@@ -83,6 +87,8 @@ provision/
   chrony-server-pi.conf          OPTIONAL: if one Pi serves NTP instead of RC box
   first-boot.sh                  sets hostname from MAC, then self-disables
   install.sh                     idempotent, sudo NTP_SERVER=x.x.x.x ./install.sh
+  setup-fieldbrain-ubuntu.sh     one-shot: DHCP+NTP+SMB on an Ubuntu/Debian laptop
+  setup-fieldbrain-fedora.sh     one-shot: DHCP+NTP+SMB on a Fedora laptop (SELinux-aware)
 tools/
   cli.py                         subcommands: ping configure capture upload set-ntp set-smb session
 android/                         EMPTY — Kotlin/Compose app not scaffolded yet
@@ -140,7 +146,7 @@ python3 cli.py session --session 2026-05-26_rex_take01 --dest smb://rc-box/scans
 
 ## Open user questions never resolved
 
-- Is the RC box a desktop (ideal) or laptop (will sleep, breaking NTP)? Affects whether Pi-as-NTP fallback is mandatory.
+- ~~Is the RC box a desktop or laptop?~~ **RESOLVED 2026-06-04: Windows desktop (always-on), and it's now reconstruction-only — NTP moved off it entirely onto the Linux field-brain laptop (decision #10), so the Pi-as-NTP fallback is not needed.**
 - One rig for humans and animals, or separate? Affects geometry/lens decisions.
 - Hardware upgrade to Global Shutter Camera modules ($1600) — only relevant if rolling-shutter artifacts on animals prove unacceptable in real captures.
 

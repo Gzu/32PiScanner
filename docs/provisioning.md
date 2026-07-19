@@ -1,5 +1,14 @@
 # Provisioning a Pi for 32PiScanner
 
+> **⚠️ SUPERSEDED (2026-06-04).** This describes the original topology where a
+> **Windows RC box served NTP**. The current architecture uses a **Linux laptop
+> field brain** (DHCP + NTP + SMB) with the Windows desktop for **reconstruction
+> only**. For the current end-to-end setup, follow
+> **[`setup-guide-ubuntu.md`](setup-guide-ubuntu.md)** or
+> **[`setup-guide-fedora.md`](setup-guide-fedora.md)** instead. The **Pi-side steps
+> here** (base image, `install.sh`, SD cloning, camera checks) are still accurate —
+> only the NTP/SMB *server* moved from Windows to the Linux laptop.
+
 End-to-end bring-up for one Pi. Repeat 32×, or flash one and `dd` the SD.
 
 ## 1. Base image
