@@ -23,6 +23,7 @@ import ctypes.util
 import json
 import logging
 import os
+import shutil
 import socket
 import subprocess
 import threading
@@ -661,6 +662,48 @@ class Node:
         )
         sock.sendto(reply, reply_to)
 
+    def handle_clear(self, msg: dict) -> bytes:
+        """Delete captured images. With `session_id`, clears just that session's
+        folder; without it, clears every session under CAPTURE_DIR. Idempotent —
+        clearing a missing session succeeds with counts of 0. Synchronous (a quick
+        filesystem op), so it replies directly like CONFIGURE."""
+        session_id = msg.get("session_id", "")
+        if session_id:
+            # Same rule as CAPTURE — also prevents path traversal via the join below.
+            if not all(c.isalnum() or c in "_-" for c in session_id):
+                return make_error(msg, "bad_session_id", session_id)
+            targets = [CAPTURE_DIR / session_id]
+        else:
+            targets = list(CAPTURE_DIR.iterdir()) if CAPTURE_DIR.exists() else []
+
+        base = CAPTURE_DIR.resolve()
+        sessions_removed = files_removed = freed_bytes = 0
+        for path in targets:
+            # Defense in depth: never touch anything outside CAPTURE_DIR (symlinks etc.).
+            try:
+                path.resolve().relative_to(base)
+            except (ValueError, OSError):
+                continue
+            if not path.is_dir():
+                continue
+            for f in path.rglob("*"):
+                if f.is_file():
+                    files_removed += 1
+                    try:
+                        freed_bytes += f.stat().st_size
+                    except OSError:
+                        pass
+            shutil.rmtree(path, ignore_errors=True)
+            sessions_removed += 1
+
+        return make_reply(
+            msg, "CLEARED",
+            session_id=session_id,
+            sessions_removed=sessions_removed,
+            files_removed=files_removed,
+            freed_mb=round(freed_bytes / (1024 * 1024), 1),
+        )
+
 
 # ─── main loop ──────────────────────────────────────────────────────────────
 def main():
@@ -716,6 +759,8 @@ def main():
                 reply = node.handle_set_ntp(msg)
             elif msg_type == "SET_SMB":
                 reply = node.handle_set_smb(msg)
+            elif msg_type == "CLEAR":
+                reply = node.handle_clear(msg)
             else:
                 reply = make_error(msg, "unknown_msg", msg_type or "")
         except Exception as e:

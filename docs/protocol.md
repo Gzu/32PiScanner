@@ -254,7 +254,42 @@ visible from this Pi. Background probes also continue every 30 s and feed
 - `bad_smb_config` — required field missing/malformed
 - `smb_write_failed` — couldn't write credentials/config (disk full, permissions)
 
-### 7. `ERROR` (reply only)
+### 7. `CLEAR` → `CLEARED`
+
+Delete captured images on the Pis. With `session_id`, clears just that session's
+folder; **without** `session_id`, clears **every** session under the captures
+directory. Idempotent — clearing a missing session succeeds with counts of `0`.
+Synchronous (a quick filesystem op), so the node replies directly.
+
+**Request**
+```json
+{
+  "v": 1,
+  "id": "<uuid>",
+  "msg": "CLEAR",
+  "session_id": "2026-05-26_rex_take03"   // optional; omit to clear ALL sessions
+}
+```
+
+**Reply**
+```json
+{
+  "v": 1,
+  "id": "<uuid>",
+  "msg": "CLEARED",
+  "pi": "pi-07",
+  "session_id": "2026-05-26_rex_take03",   // echoes request; "" when clearing all
+  "sessions_removed": 1,
+  "files_removed": 1,
+  "freed_mb": 2.7
+}
+```
+
+`session_id`, when present, must match `[a-z0-9_-]+` (same rule as `CAPTURE`); this
+also prevents path traversal, and deletion is confined to the node's captures
+directory. Anything else replies `ERROR { reason: "bad_session_id" }`.
+
+### 8. `ERROR` (reply only)
 
 Any node-side failure replies with:
 ```json
@@ -283,6 +318,7 @@ Any node-side failure replies with:
 - `chrony_restart_failed` — chronyd refused to restart after `SET_NTP`
 - `bad_smb_config` — `SET_SMB` payload missing required fields
 - `smb_write_failed` — persistence of `SET_SMB` to disk failed
+- `bad_session_id` — `session_id` (on `CAPTURE`/`CLEAR`) has chars outside `[a-z0-9_-]`
 
 ## Per-Pi identity
 

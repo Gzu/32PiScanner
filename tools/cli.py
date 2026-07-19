@@ -220,6 +220,27 @@ def cmd_set_smb(args) -> int:
     return 0 if reachable == total and total > 0 else 1
 
 
+def cmd_clear(args) -> int:
+    """Delete captured images on the Pis (one session, or all with --all)."""
+    if args.all and not args.yes:
+        try:
+            resp = input("Delete ALL captured sessions on every Pi? [y/N] ")
+        except EOFError:
+            resp = ""
+        if resp.strip().lower() != "y":
+            print("aborted")
+            return 0
+    sock = _open_socket()
+    payload: dict = {"msg": "CLEAR"}
+    if args.session:
+        payload["session_id"] = args.session
+    # --all → no session_id, the daemon clears every session.
+    msg_id = _send_triple(sock, payload)
+    replies = _collect_replies(sock, msg_id, timeout_s=args.timeout, expected=args.expected)
+    _print_replies(replies, expected=args.expected)
+    return 0
+
+
 def cmd_session(args) -> int:
     """configure + capture + upload, end-to-end."""
     print("─── 1/3 CONFIGURE ───")
@@ -284,6 +305,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp_ss.add_argument("--creds-ref", default="default",
                        help="credentials file name under /etc/picam_node/credentials/")
     sp_ss.set_defaults(func=cmd_set_smb)
+
+    sp_clr = sub.add_parser("clear", help="delete captured images on the Pis")
+    g_clr = sp_clr.add_mutually_exclusive_group(required=True)
+    g_clr.add_argument("--session", help="session id to delete")
+    g_clr.add_argument("--all", action="store_true",
+                       help="delete ALL sessions on every Pi")
+    sp_clr.add_argument("--yes", action="store_true",
+                        help="skip the confirmation prompt for --all")
+    sp_clr.set_defaults(func=cmd_clear)
 
     sp_ses = sub.add_parser("session", help="configure + capture + upload")
     sp_ses.add_argument("--session", required=True)
