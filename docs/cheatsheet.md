@@ -120,11 +120,13 @@ back gracefully without it. Ctrl-C to stop.
 ```bash
 git pull                                                   # get latest code first
 
-SSH_USER=<pi-user> ./provision/update-pis.sh               # push daemon to all Pis + restart
-SSH_USER=<pi-user> ./provision/fix-pi-hostnames.sh         # re-derive hostnames (cosmetic now)
+SSH_USER=<pi-user> ./provision/setup-pi-keys.sh            # 1. install laptop SSH key on all Pis (type each pw once)
+SSH_USER=<pi-user> ./provision/update-pis.sh               # 2. push daemon to all Pis + restart (passwordless via keys)
+SSH_USER=<pi-user> ./provision/fix-pi-hostnames.sh         # (optional) re-derive hostnames — cosmetic
 
-# both take explicit IPs too:  ... ./update-pis.sh 192.168.50.101 192.168.50.102
-ssh-copy-id <pi-user>@<ip>                                 # set up key auth (do once per Pi)
+# all take explicit IPs too:   ... ./update-pis.sh 192.168.50.101 192.168.50.102
+# or control discovery:        POOL=192.168.50.100-200   LEASES=<path>
+# NEW clones: bake the laptop pubkey into the master's authorized_keys (guide §2.6) — skips step 1
 ```
 
 Provision one fresh Pi (needs internet, once):
