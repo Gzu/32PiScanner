@@ -339,6 +339,25 @@ After reboot, `hostname` should read `pi-XXXXXX` and
 
 ### 2.6 Clone to the other 31 cards
 
+**Before you clone — bake in laptop SSH access (recommended).** Put the field-brain
+laptop's SSH public key into the master's `authorized_keys` now, so **every clone
+trusts the laptop from first boot**. Then the fleet scripts (`update-pis.sh`,
+`fix-pi-hostnames.sh`) run passwordless with **no per-Pi `ssh-copy-id` or password**.
+
+```bash
+# on the LAPTOP — print your public key (create one first if needed: ssh-keygen -t ed25519):
+cat ~/.ssh/id_ed25519.pub
+
+# on the MASTER Pi — append that exact line to authorized_keys:
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo 'ssh-ed25519 AAAA...paste-your-laptop-pubkey... you@laptop' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+The key lives in the rootfs, so it's captured in `master.img` and every clone inherits
+it. (Also ensure the Pi user has passwordless sudo — RPi OS default — since the deploy
+scripts run `sudo -n`.) Then create the image:
+
 ```bash
 # On a Linux/Mac box, with the finished card in a reader:
 sudo dd if=/dev/sdX of=master.img bs=4M status=progress
