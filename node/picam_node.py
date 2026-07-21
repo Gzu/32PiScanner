@@ -234,6 +234,14 @@ def pi_id() -> str:
     return socket.gethostname()
 
 
+def is_raspberry_pi() -> bool:
+    """True only on real Pi hardware — guards REBOOT/HALT from powering off a dev box."""
+    try:
+        return "raspberry pi" in Path("/proc/device-tree/model").read_text().lower()
+    except OSError:
+        return False
+
+
 def chrony_offset_ms() -> Optional[float]:
     """Returns current clock offset to NTP source in ms, or None on failure."""
     try:
@@ -770,6 +778,28 @@ class Node:
         )
         sock.sendto(reply, reply_to)
 
+    def _power(self, msg: dict, systemctl_action: str, reply_type: str, label: str) -> bytes:
+        """Reply first, then run `systemctl <action>` ~1 s later so the reply datagram
+        leaves before the box goes down. Runs as root; a no-op on non-Pi dev boxes."""
+        def _do():
+            time.sleep(1.0)
+            if not is_raspberry_pi():
+                log.warning("%s requested but this is not a Raspberry Pi — ignoring", label)
+                return
+            try:
+                subprocess.run(["systemctl", systemctl_action], timeout=15)
+            except Exception as e:  # noqa: BLE001
+                log.error("%s (systemctl %s) failed: %s", label, systemctl_action, e)
+        threading.Thread(target=_do, daemon=True).start()
+        log.info("%s scheduled in ~1s", label)
+        return make_reply(msg, reply_type, action=label)
+
+    def handle_reboot(self, msg: dict) -> bytes:
+        return self._power(msg, "reboot", "REBOOTING", "reboot")
+
+    def handle_halt(self, msg: dict) -> bytes:
+        return self._power(msg, "poweroff", "HALTING", "halt")
+
 
 # ─── main loop ──────────────────────────────────────────────────────────────
 def main():
@@ -829,6 +859,10 @@ def main():
                 reply = node.handle_clear(msg)
             elif msg_type == "METER":
                 reply = node.handle_meter(msg, addr, sock)
+            elif msg_type == "REBOOT":
+                reply = node.handle_reboot(msg)
+            elif msg_type == "HALT":
+                reply = node.handle_halt(msg)
             else:
                 reply = make_error(msg, "unknown_msg", msg_type or "")
         except Exception as e:

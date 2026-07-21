@@ -79,6 +79,8 @@ UDP broadcast on closed LAN. Any device on the LAN can send any message includin
 | `SET_NTP` | `NTP_SET` | rewrites `/etc/chrony/chrony.conf` atomically + restarts chronyd (~30s reconvergence) |
 | `SET_SMB` | `SMB_SET` | writes `/etc/picam_node/smb.yaml` + credentials file; immediate port-445 probe |
 | `CLEAR` | `CLEARED` | delete captured images — one `session_id`, or all if omitted; idempotent |
+| `REBOOT` | `REBOOTING` | `systemctl reboot` after replying (root; no-op off-Pi) |
+| `HALT` | `HALTING` | `systemctl poweroff` — halted fleet needs a physical power-cycle |
 | — | `ERROR` | reasons enumerated in protocol doc |
 
 **Error reasons:** `trigger_too_soon`, `trigger_too_far`, `clock_unsynced`, `camera_unavailable`, `disk_full`, `not_configured`, `upload_failed`, `unknown_session`, `no_smb_dest`, `bad_ntp_config`, `chrony_restart_failed`, `bad_smb_config`, `smb_write_failed`, `internal_error`, `unknown_msg`, `bad_session_id`.

@@ -291,6 +291,34 @@ def cmd_clear(args) -> int:
     return 0
 
 
+def _cmd_power(args, msg_type: str, label: str) -> int:
+    if label == "halt":
+        warn = "HALT powers every Pi OFF — a Pi 3B has no soft power-on, so they need a PHYSICAL power-cycle to return"
+    else:
+        warn = "REBOOT will restart every Pi"
+    if not args.yes:
+        try:
+            resp = input(f"{warn}. Proceed on ALL Pis? [y/N] ")
+        except EOFError:
+            resp = ""
+        if resp.strip().lower() != "y":
+            print("aborted")
+            return 0
+    sock = _open_socket()
+    msg_id = _send_triple(sock, {"msg": msg_type})
+    replies = _collect_replies(sock, msg_id, timeout_s=args.timeout, expected=args.expected)
+    _print_replies(replies, expected=args.expected)
+    return 0
+
+
+def cmd_reboot(args) -> int:
+    return _cmd_power(args, "REBOOT", "reboot")
+
+
+def cmd_halt(args) -> int:
+    return _cmd_power(args, "HALT", "halt")
+
+
 def cmd_session(args) -> int:
     """configure + capture + upload, end-to-end."""
     print("─── 1/3 CONFIGURE ───")
@@ -375,6 +403,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp_clr.add_argument("--yes", action="store_true",
                         help="skip the confirmation prompt for --all")
     sp_clr.set_defaults(func=cmd_clear)
+
+    sp_reboot = sub.add_parser("reboot", help="reboot every Pi")
+    sp_reboot.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    sp_reboot.set_defaults(func=cmd_reboot)
+
+    sp_halt = sub.add_parser("halt", help="power off every Pi (needs physical re-power to return)")
+    sp_halt.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    sp_halt.set_defaults(func=cmd_halt)
 
     sp_ses = sub.add_parser("session", help="configure + capture + upload")
     sp_ses.add_argument("--session", required=True)

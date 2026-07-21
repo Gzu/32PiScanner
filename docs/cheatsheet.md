@@ -85,6 +85,9 @@ python3 cli.py session --session <session> --dest smb://192.168.50.1/scans/  # c
 
 python3 cli.py clear --session <session>       # delete that session on all Pis
 python3 cli.py clear --all                     # delete ALL captures (prompts; --yes to skip)
+
+python3 cli.py reboot                          # reboot all Pis (prompts; --yes to skip)
+python3 cli.py halt                            # power OFF all Pis — needs physical re-power! (prompts)
 ```
 
 ---

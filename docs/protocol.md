@@ -318,7 +318,26 @@ broadcast `CONFIGURE` with the average. **Caveat:** in a dim scene, auto may pic
 long exposure that reintroduces rolling-shutter blur; the CLI warns when the average
 exceeds 2000 µs and offers `--max-exposure-us` to cap it (compensate with light/gain).
 
-### 9. `ERROR` (reply only)
+### 9. `REBOOT` → `REBOOTING`,  `HALT` → `HALTING`
+
+Fleet power control. The node **replies first**, then runs `systemctl reboot` /
+`systemctl poweroff` ~1 s later (so the reply datagram leaves before the box goes
+down). Runs as root; a no-op on non-Pi dev boxes (guarded by `/proc/device-tree/model`).
+`HALT` powers the Pi off — a Pi 3B has no soft power-on, so a halted fleet needs a
+**physical power-cycle** to return.
+
+**Request**
+```json
+{ "v": 1, "id": "<uuid>", "msg": "REBOOT" }     // or "HALT"
+```
+
+**Reply**
+```json
+{ "v": 1, "id": "<uuid>", "msg": "REBOOTING", "pi": "pi-07", "action": "reboot" }
+```
+`HALT` replies `HALTING` with `"action": "halt"`.
+
+### 10. `ERROR` (reply only)
 
 Any node-side failure replies with:
 ```json
