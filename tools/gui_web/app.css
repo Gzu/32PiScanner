@@ -145,7 +145,9 @@ input[type="text"], input[type="password"], input[type="number"] {
   min-height: 0;
   display: grid;
   grid-template-columns: 1.25fr 1fr;
-  grid-template-rows: 1fr 1.1fr 0.9fr;
+  /* RIG is fixed-content (4×24px squares + status line); EXPOSURE has the
+     most slack; STORE needs room for three data rows + two button rows. */
+  grid-template-rows: 0.9fr 1.04fr 1.06fr;
   grid-template-areas:
     "rig      trigger"
     "exposure session"
@@ -185,7 +187,7 @@ input[type="text"], input[type="password"], input[type="number"] {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .statusline {

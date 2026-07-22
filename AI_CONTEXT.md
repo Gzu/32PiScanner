@@ -50,7 +50,19 @@ This file is dense and skips human-friendly framing. Read top to bottom before a
    with **CLEAR gated on filesystem verification** (never trust UPLOADED alone), triage
    distinguishing capture-miss (retake) from upload-miss (retry), session.json manifest
    per take, `--sim N --sim-faults dead:1,ntp:1,smb:1,stale:1` fake fleet for off-rig dev.
-   Protocol v1 untouched. Runtime state in `~/.picam_gui/`.
+   Protocol v1 untouched. Runtime state in `~/.picam_gui/`. **2026-07-20:** the GUI also
+   fronts the fleet extras added via CLI/scripts — REBOOT/HALT power verbs (typed-confirm
+   overlays; sim nodes actually go offline/dead), and streamed runs of
+   `diagnose-pis.sh` (SSH_USER from GUI config) and `sudo -n diagnose-smb.sh` (fails fast
+   with a hint when passwordless sudo is absent). `setup-pi-keys.sh` stays terminal-only
+   by design — it prompts for the Pi password interactively. **Also 2026-07-20:** the
+   TEST FRAME button was replaced (user request) by session management — per-session
+   detail overlay (manifest facts + contact sheet + retry + verify-gated clear),
+   `POST /api/session-delete` removing a session from the share with an escalating
+   confirm (word "DELETE" normally; the FULL session name when `cleared_on_pis` or no
+   manifest, i.e. the share holds the only copy), subject-chip removal, and a
+   today's-tally line. The `/api/take {test:true}` path still exists for CLI-style
+   pipeline rehearsals; only the button is gone.
 
 10. **Split field-brain architecture (decided 2026-06-04).** A **Linux laptop** (Debian-based; user's laptop is Kali) is the portable field brain: it serves **DHCP (dnsmasq) + NTP (chrony) + SMB (Samba)** to the rig on `192.168.50.0/24`. The **Windows desktop is reconstruction-only** — it never joins the rig LAN during a shoot; images are pulled afterward from the laptop's `//192.168.50.1/scans` share into RealityCapture. This **supersedes the NTP-on-Windows / SMB-to-Windows parts of decisions #3 and #6** (no code change needed — SMB is SMB, the Pi chrony client just points at the laptop IP). Internet is optional and only needed for one-time `apt` provisioning; offline the laptop serves `local stratum 10`. Full guide: `docs/setup-guide-ubuntu.md` (Debian/Kali); one-shot provisioner: `provision/setup-fieldbrain-ubuntu.sh`. Also containerized (clean teardown): `containers/` (compose + quadlets).
 

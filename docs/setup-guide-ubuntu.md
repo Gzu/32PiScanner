@@ -210,6 +210,8 @@ sudo useradd -M -s /usr/sbin/nologin scanner
 sudo smbpasswd -a scanner            # set a password — you'll put this on the Pis
 sudo mkdir -p /srv/scans
 sudo chown scanner:scanner /srv/scans
+sudo chmod 2775 /srv/scans           # group-writable + setgid: new session dirs inherit the group
+sudo usermod -aG scanner "$(id -un)" # let the GUI (runs as YOU) write here too, via the scanner group
 ```
 
 Append a share to `/etc/samba/smb.conf`:
@@ -237,6 +239,16 @@ smbclient -L localhost -U scanner      # should list the 'scans' share
 
 > Ubuntu ships an AppArmor profile for Samba, but it does not restrict arbitrary
 > share paths by default, so `/srv/scans` works with no extra step.
+
+> **GUI write access (don't skip).** The Pis upload as `scanner`, but the web GUI
+> (`tools/gui.py`) runs as **your** user and *also* needs to write `/srv/scans` — it
+> creates a folder per session there. Without it the GUI shows **"SCANS ROOT NOT
+> WRITABLE"** and silently fails to create sessions. The `chmod 2775` +
+> `usermod -aG scanner` above grant that through a shared group. **A group change
+> only applies to a new login session**, so **log out and back in** (or run
+> `newgrp scanner` in the terminal you launch the GUI from) before starting it.
+> Verify: `id | grep scanner` prints `scanner`, and `touch /srv/scans/_t && rm /srv/scans/_t`
+> succeeds as your user.
 
 ### 1.7 Firewall
 

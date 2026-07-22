@@ -123,14 +123,16 @@
       <div id="subject-chips"></div>
       <div class="btnrow">
         <button id="btn-new-subject" type="button">+ NEW</button>
+        <button id="btn-del-subject" type="button" title="remove the selected subject chip">&minus; REMOVE</button>
         <input id="inp-new-subject" type="text" maxlength="32" placeholder="subject-name" hidden>
       </div>
       <div class="readout">
         <span class="s-lbl">NEXT</span>
         <span id="next-name">&mdash;</span>
       </div>
-      <div class="btnrow">
-        <button id="btn-test" class="act" type="button">TEST FRAME</button>
+      <div class="readout">
+        <span class="s-lbl">TODAY</span>
+        <span id="day-line">&mdash;</span>
       </div>
     </div>
   </section>
@@ -159,6 +161,12 @@
         <button id="btn-update" type="button">UPDATE FLEET</button>
         <button id="btn-preflight" type="button">PREFLIGHT</button>
         <button id="btn-clearall" class="danger" type="button">CLEAR ALL</button>
+      </div>
+      <div class="btnrow">
+        <button id="btn-diag-pis" type="button">DIAGNOSE PIS</button>
+        <button id="btn-diag-smb" type="button">DIAGNOSE SMB</button>
+        <button id="btn-reboot" class="danger" type="button">REBOOT</button>
+        <button id="btn-halt" class="danger" type="button">HALT</button>
       </div>
     </div>
   </section>

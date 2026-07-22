@@ -55,7 +55,12 @@ android/      Kotlin + Jetpack Compose app (scaffolded in next iteration)
 A dark, instrument-panel web UI ("Faceplate") that wraps the whole CLI surface —
 live 32-Pi grid with GO/NO-GO verdict, one-tap take (capture → upload → verify on
 the share → clear, with CLEAR gated on verification), autoconfigure with a
-motion-safe exposure clamp, set-ntp/set-smb, fleet update, contact-sheet review.
+motion-safe exposure clamp, set-ntp/set-smb, fleet update, fleet power control
+(REBOOT / HALT, confirm-word gated), one-click runs of the diagnose scripts
+(silent-Pi hunt, laptop-side SMB health), and session management — per-session
+manifest detail, contact-sheet review, upload retry, verify-gated clear, and
+share-side delete that demands the full session name when it would destroy the
+only remaining copy.
 
 ```bash
 python3 tools/gui.py            # on the field-brain laptop → http://<laptop-ip>:8321

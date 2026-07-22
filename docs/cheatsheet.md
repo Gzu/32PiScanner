@@ -116,6 +116,23 @@ python3 tools/gui.py --sim 32 --sim-faults dead:1,ntp:1,smb:1,stale:1  # inject 
 Thumbnails are optional — `sudo apt install -y python3-pil` (Pillow); the UI falls
 back gracefully without it. Ctrl-C to stop.
 
+The STORE region also fronts the fleet scripts and power verbs, so mid-shoot none
+of these need a terminal:
+- **DIAGNOSE PIS** → runs `provision/diagnose-pis.sh` (SSH user from the GUI config)
+- **DIAGNOSE SMB** → runs `sudo -n provision/diagnose-smb.sh` — needs passwordless
+  sudo for that script, otherwise the overlay tells you to run it manually
+- **REBOOT / HALT** → the `REBOOT`/`HALT` broadcasts, gated on typing the word;
+  HALT still means a physical power-cycle to bring the fleet back
+
+Clicking a row in SESSIONS opens the session manager: manifest facts, contact
+sheet, upload retry, verify-gated CLEAR ON PIS, and DELETE FROM SHARE. Deleting
+asks for the word `DELETE` — unless the Pi copies were already cleared, in which
+case the share holds the **only** copy and you must type the full session name.
+
+> **"SCANS ROOT NOT WRITABLE" / sessions not created** → the GUI (running as you) can't
+> write `/srv/scans`. Be in the `scanner` group (guide §1.6): `sudo usermod -aG scanner
+> "$(id -un)"`, then **log out/in** (or `newgrp scanner`). Check: `id | grep scanner`.
+
 ---
 
 ## Fleet management (from `~/32PiScanner`, run on the laptop)

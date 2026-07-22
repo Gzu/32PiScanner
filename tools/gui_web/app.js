@@ -516,7 +516,8 @@ function renderSession() {
   const box = $('subject-chips');
   const subs = subjects();
   const sig = JSON.stringify([subs, ui.subject, nextSessionName(ui.subject),
-    !!state.current_op]);
+    !!state.current_op,
+    state.sessions.map((s) => [s.session, s.verified, s.test])]);
   if (sig === sessionSig) return;
   sessionSig = sig;
   box.textContent = '';
@@ -534,7 +535,19 @@ function renderSession() {
   }
   const nn = nextSessionName(ui.subject);
   $('next-name').textContent = nn || '— pick a subject —';
-  $('btn-test').disabled = !!state.current_op;
+  $('btn-del-subject').disabled = !ui.subject || !!state.current_op;
+
+  // today's tally — real takes only, test frames don't count
+  const today = todayStr();
+  let takes = 0, good = 0, bad = 0;
+  for (const s of state.sessions) {
+    if (s.test || !s.session || s.session.indexOf(today) !== 0) continue;
+    takes++;
+    if (s.verified) good++; else bad++;
+  }
+  $('day-line').textContent = takes
+    ? takes + (takes === 1 ? ' take · ' : ' takes · ') + good + ' ✓ · ' + bad + ' ✗'
+    : 'no takes yet';
 }
 
 function renderStore() {
@@ -588,6 +601,10 @@ function renderStore() {
   $('btn-update').disabled = busy;
   $('btn-preflight').disabled = busy;
   $('btn-clearall').disabled = busy;
+  $('btn-diag-pis').disabled = busy;
+  $('btn-diag-smb').disabled = busy;
+  $('btn-reboot').disabled = busy;
+  $('btn-halt').disabled = busy;
 }
 
 function renderSessions() {
@@ -616,7 +633,7 @@ function renderSessions() {
         class: 'dim',
         text: (typeof s.spread_ms === 'number') ? s.spread_ms.toFixed(1) + 'ms' : '—',
       }));
-    row.addEventListener('click', () => openReview(s));
+    row.addEventListener('click', () => openSessionDetail(s));
     box.append(row);
   }
 }
@@ -1005,6 +1022,147 @@ function sheetPiIds(entry) {
   return rigList().map((e) => e.id).filter((id) => !!id);
 }
 
+async function getJSON(path) {
+  const res = await fetch(path);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(data.error || ('HTTP ' + res.status));
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+/* ── session detail (manifest facts + management actions) ── */
+
+async function openSessionDetail(entry) {
+  let manifest = null;
+  try {
+    const d = await getJSON('/api/session/' + encodeURIComponent(entry.session));
+    if (d.summary) entry = Object.assign({}, entry, d.summary);
+    manifest = d.manifest;
+  } catch (err) {
+    localTicker('warn', 'SESSION detail unavailable · ' + err.message);
+  }
+  const m = manifest || {};
+  const facts = h('div', { class: 'pi-grid' });
+  const row = (k, v, cls) => {
+    facts.append(h('span', { class: 'k', text: k }),
+      h('span', { class: cls || '', text: v }));
+  };
+  const exp = (typeof entry.expected === 'number') ? entry.expected : expectedPis();
+  row('CREATED', entry.created_at ? fmtClock(entry.created_at) : '—');
+  row('SUBJECT', (entry.subject || '—')
+    + (entry.take ? ' · take ' + entry.take : '')
+    + (entry.test ? ' · TEST' : ''));
+  const st = m.settings;
+  row('SETTINGS', st
+    ? st.exposure_us + ' µs · g' + st.analogue_gain + ' · awb ['
+      + (st.awb_gains || []).join(', ') + '] · Q' + st.jpeg_quality
+    : '—');
+  row('CAPTURED', (m.captured ? m.captured.length : '?') + '/' + exp
+    + ((m.missing && m.missing.length) ? ' · missing ' + m.missing.join(' ') : '')
+    + (m.shortfall ? ' · shortfall ' + m.shortfall : ''));
+  row('SPREAD', (typeof entry.spread_ms === 'number')
+    ? entry.spread_ms.toFixed(1) + ' ms ' + (m.spread_ok ? '✓' : '✗')
+    : '—', m.spread_ok ? 'good' : '');
+  row('FILES', entry.files + '/' + exp + ' on share');
+  row('VERIFIED', entry.verified ? '✓ yes' : '✗ no',
+    entry.verified ? 'good' : 'bad');
+  row('PI COPIES', entry.cleared_on_pis
+    ? 'cleared — share holds the ONLY copy' : 'still on the Pis',
+    entry.cleared_on_pis ? 'bad' : 'good');
+  if (entry.triage && entry.triage !== 'ok') {
+    row('TRIAGE', String(entry.triage).toUpperCase());
+  }
+
+  const btns = h('div', { class: 'btnrow' },
+    h('button', {
+      class: 'act', type: 'button', text: 'CONTACT SHEET',
+      onclick: () => openReview(entry),
+    }));
+  if (!entry.verified) {
+    btns.append(h('button', {
+      type: 'button', text: 'RETRY UPLOAD',
+      onclick: async (e) => {
+        e.target.disabled = true;
+        try {
+          await api('/api/upload-retry', { session: entry.session });
+          closeOverlay();
+          openSessionDetail({ session: entry.session });
+        } catch (err) { e.target.disabled = false; apiFail(err, 'RETRY UPLOAD'); }
+      },
+    }));
+  }
+  if (entry.verified && !entry.cleared_on_pis) {
+    btns.append(h('button', {
+      class: 'danger', type: 'button', text: 'CLEAR ON PIS',
+      onclick: async (e) => {
+        e.target.disabled = true;
+        try {
+          await api('/api/clear', { session: entry.session });
+          closeOverlay();
+          openSessionDetail({ session: entry.session });
+        } catch (err) { e.target.disabled = false; apiFail(err, 'CLEAR'); }
+      },
+    }));
+  }
+  btns.append(
+    h('button', {
+      class: 'danger', type: 'button', text: 'DELETE FROM SHARE',
+      onclick: () => openSessionDelete(entry),
+    }),
+    h('button', { type: 'button', text: 'CLOSE', onclick: closeOverlay }));
+
+  openOverlay({
+    name: 'session-detail',
+    el: panel('SESSION · ' + entry.session, facts, btns),
+  });
+}
+
+function openSessionDelete(entry) {
+  // Mirrors the backend rule: once the Pi copies are cleared (or provenance is
+  // unknown — no manifest), the share holds the only copy and the confirm word
+  // escalates from DELETE to the full session name.
+  const onlyCopy = !!entry.cleared_on_pis || entry.has_manifest === false;
+  const required = onlyCopy ? entry.session : 'DELETE';
+  const warn = onlyCopy
+    ? 'the Pi-side copies are gone — this is the ONLY copy of these images. '
+      + 'deleting is permanent. type the full session name to arm.'
+    : 'removes this session from the laptop share only; the Pis still hold '
+      + 'their copies (re-uploadable). type DELETE to arm.';
+  const inp = h('input', { type: 'text', placeholder: 'type ' + required, autocomplete: 'off' });
+  const result = h('div', { class: 'ov-result' });
+  const btn = h('button', {
+    class: 'danger', type: 'button', text: 'DELETE ' + entry.session, disabled: '',
+    onclick: async () => {
+      btn.disabled = true;
+      try {
+        const r = await api('/api/session-delete',
+          { session: entry.session, confirm: inp.value });
+        closeAllOverlays();     // detail overlay underneath is now stale too
+        localTicker('warn', 'DELETED ' + entry.session + ' · '
+          + r.files_removed + ' files');
+      } catch (err) {
+        result.className = 'ov-result fail';
+        result.textContent = 'delete failed · ' + err.message;
+        btn.disabled = inp.value !== required;
+      }
+    },
+  });
+  inp.addEventListener('input', () => { btn.disabled = inp.value !== required; });
+  openOverlay({
+    name: 'session-delete',
+    el: panel('DELETE · ' + entry.session,
+      h('div', { class: 'ov-note', text: warn }),
+      inp, result,
+      h('div', { class: 'btnrow' }, btn,
+        h('button', { type: 'button', text: 'CANCEL', onclick: closeOverlay }))),
+  });
+  inp.focus();
+}
+
 function openReview(entry) {
   const exp = (typeof entry.expected === 'number') ? entry.expected : expectedPis();
   const ids = sheetPiIds(entry).slice(0, Math.max(exp, 1));
@@ -1345,6 +1503,80 @@ function openClearAll() {
   inp.focus();
 }
 
+/* ── fleet power (REBOOT / HALT) ── */
+
+function openPower(action) {
+  const verb = action.toUpperCase();               // REBOOT / HALT
+  const warn = action === 'halt'
+    ? 'HALT powers every Pi OFF. a Pi 3B has no soft power-on — the fleet '
+      + 'needs a PHYSICAL power-cycle to return. type HALT to arm.'
+    : 'REBOOT restarts every Pi — the rig goes silent for ~60 s, then the '
+      + 'grid refills as nodes come back. type REBOOT to arm.';
+  const inp = h('input', { type: 'text', placeholder: 'type ' + verb, autocomplete: 'off' });
+  const result = h('div', { class: 'ov-result' });
+  const btn = h('button', {
+    class: 'danger', type: 'button', disabled: '',
+    text: verb + ' EVERY PI',
+    onclick: async () => {
+      btn.disabled = true;
+      try {
+        const r = await api('/api/power', { action: action, confirm: inp.value });
+        result.className = 'ov-result ok';
+        result.textContent = r.acks + '/' + r.expected + ' ' + verb
+          + ' ack · ' + (r.note || '');
+      } catch (err) {
+        result.className = 'ov-result fail';
+        result.textContent = verb + ' failed · ' + err.message;
+        btn.disabled = inp.value !== verb;
+      }
+    },
+  });
+  inp.addEventListener('input', () => { btn.disabled = inp.value !== verb; });
+  openOverlay({
+    name: 'power',
+    el: panel(verb + ' FLEET',
+      h('div', { class: 'ov-note', text: warn }),
+      inp, result,
+      h('div', { class: 'btnrow' }, btn,
+        h('button', { type: 'button', text: 'CANCEL', onclick: closeOverlay }))),
+  });
+  inp.focus();
+}
+
+/* ── diagnose (streams provision/diagnose-*.sh) ── */
+
+function openDiagnose(target) {
+  const title = target === 'pis'
+    ? 'DIAGNOSE PIS — find nodes silent on ping'
+    : 'DIAGNOSE SMB — laptop-side share health';
+  const log = h('div', { class: 'upd-log', text: '' });
+  const status = h('div', {
+    class: 'ov-note',
+    text: 'running provision/diagnose-' + target + '.sh…',
+  });
+  openOverlay({
+    name: 'diagnose',
+    el: panel(title, status, log,
+      h('div', { class: 'btnrow' },
+        h('button', { type: 'button', text: 'CLOSE', onclick: closeOverlay }))),
+    onOp: (m) => {
+      if (m.op !== 'diagnose' || m.line === undefined) return;
+      log.append(document.createTextNode(m.line + '\n'));
+      log.scrollTop = log.scrollHeight;
+    },
+  });
+  api('/api/diagnose', { target: target })
+    .then((r) => {
+      status.textContent = r.ok ? 'done — no problems found'
+        : 'done — problems found (exit ' + r.exit_code + '), see output';
+    })
+    .catch((err) => {
+      status.textContent = (err.status === 409 && err.data && err.data.error === 'busy')
+        ? 'BUSY · ' + String(err.data.op || 'op').toUpperCase() + ' in progress'
+        : 'diagnose failed · ' + err.message;
+    });
+}
+
 /* ── preset save ── */
 
 function openPresetSave() {
@@ -1516,12 +1748,30 @@ function wire() {
       e.target.hidden = true;
     }
   });
-  $('btn-test').addEventListener('click', () => fire(true));
+  $('btn-del-subject').addEventListener('click', async () => {
+    const gone = ui.subject;
+    if (!gone) return;
+    // Chip removal only — takes already on the share keep their names.
+    const rest = subjects().filter((s) => s !== gone);
+    ui.localSubjects = ui.localSubjects.filter((s) => s !== gone);
+    localStorage.setItem('pi32.subjects', JSON.stringify(ui.localSubjects));
+    ui.subject = rest[0] || '';
+    try {
+      const r = await api('/api/config', { subjects: rest });
+      if (r && r.config) state.config = r.config;
+      localTicker('info', 'SUBJECT chip removed · ' + gone);
+    } catch (err) { apiFail(err, 'REMOVE SUBJECT'); }
+    render();
+  });
 
   // store
   $('btn-edit-smb').addEventListener('click', openSetSmb);
   $('btn-edit-ntp').addEventListener('click', openSetNtp);
   $('btn-update').addEventListener('click', openUpdateFleet);
+  $('btn-diag-pis').addEventListener('click', () => openDiagnose('pis'));
+  $('btn-diag-smb').addEventListener('click', () => openDiagnose('smb'));
+  $('btn-reboot').addEventListener('click', () => openPower('reboot'));
+  $('btn-halt').addEventListener('click', () => openPower('halt'));
   $('btn-preflight').addEventListener('click', openPreflight);
   $('btn-clearall').addEventListener('click', openClearAll);
 

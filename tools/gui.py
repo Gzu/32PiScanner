@@ -22,6 +22,7 @@ import os
 import queue
 import random
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -49,7 +50,12 @@ STATE_DIR = Path.home() / ".picam_gui"
 THUMBS_DIR = STATE_DIR / "thumbs"
 CONFIG_PATH = STATE_DIR / "config.json"
 WEB_ROOT = Path(__file__).resolve().parent / "gui_web"
-UPDATE_SCRIPT = Path(__file__).resolve().parent.parent / "provision" / "update-pis.sh"
+PROVISION_DIR = Path(__file__).resolve().parent.parent / "provision"
+UPDATE_SCRIPT = PROVISION_DIR / "update-pis.sh"
+DIAG_PIS_SCRIPT = PROVISION_DIR / "diagnose-pis.sh"
+DIAG_SMB_SCRIPT = PROVISION_DIR / "diagnose-smb.sh"
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")   # scripts colorize; the ticker/overlay don't
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 SESSION_PARSE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_([a-z0-9-]+)_take(\d+)$")
@@ -59,6 +65,9 @@ CMD_TIMEOUT_S = 5.0
 UPLOAD_TIMEOUT_S = 35.0   # > the daemon's 30 s smbclient budget, so slow-but-successful
                           # pushes are never misreported as failed
 UPDATE_DEADLINE_S = 600.0  # hard kill for update-pis.sh — it holds the op lock
+DIAG_DEADLINE_S = 300.0    # hard kill for diagnose-*.sh — same reason
+POWER_TIMEOUT_S = 3.0      # REBOOTING/HALTING acks arrive ~instantly (the daemon
+                           # delays the systemctl action 1 s, not the reply)
 TICKER_SIZE = 200
 SSE_HEARTBEAT_S = 15.0
 
@@ -181,6 +190,7 @@ class SimNode:
     smb_server: str = "rig-box"
     smb_share: str = "scans"
     started_at: float = field(default_factory=time.monotonic)
+    offline_until: float = 0.0  # sim REBOOT: silent until this monotonic time
 
 
 class SimRig(RigClient):
@@ -213,7 +223,7 @@ class SimRig(RigClient):
         now = time.time()
         slate: List[Tuple[float, Reply]] = []
         for node in self.nodes:
-            if node.dead:
+            if node.dead or time.monotonic() < node.offline_until:
                 continue
             made = self._respond(node, msg, payload, now)
             if made is None:
@@ -279,6 +289,16 @@ class SimRig(RigClient):
             }
         if msg == "CLEAR":
             return lat, "CLEARED", self._clear(node, payload)
+        if msg == "REBOOT":
+            # ack now, "go down" ~1 s later for ~8 s, come back with fresh uptime
+            node.offline_until = time.monotonic() + 9.0
+            node.started_at = node.offline_until
+            return lat, "REBOOTING", {"action": "reboot"}
+        if msg == "HALT":
+            # ack, then stay down — like the real fleet, only a power-cycle
+            # (here: a server restart) brings it back
+            node.dead = True
+            return lat, "HALTING", {"action": "halt"}
         return lat, "ERROR", {"in_reply_to": msg, "reason": "unknown_msg", "detail": msg}
 
     def _pong(self, node: SimNode) -> dict:
@@ -710,6 +730,9 @@ class App:
                     "files": files,
                     "verified": bool(m.get("verified")),
                     "spread_ms": m.get("spread_ms"),
+                    "cleared_on_pis": bool(m.get("cleared_on_pis")),
+                    "triage": m.get("triage"),
+                    "has_manifest": True,
                 })
             else:
                 pm = SESSION_PARSE_RE.match(d.name)
@@ -723,6 +746,9 @@ class App:
                     "files": files,
                     "verified": False,
                     "spread_ms": None,
+                    "cleared_on_pis": False,
+                    "triage": None,
+                    "has_manifest": False,
                 })
         return out
 
@@ -1181,6 +1207,51 @@ class App:
         return {"acks": acks, "expected": expected, "files_removed": files,
                 "freed_mb": round(freed, 1), "results": reply_summary(replies)}
 
+    def session_detail(self, session: str) -> dict:
+        """Summary row + full manifest for one session on the share."""
+        if not NAME_RE.match(session):
+            raise ApiError(400, {"error": "bad session name"})
+        d = self.scans_root / session
+        if not d.is_dir():
+            raise ApiError(404, {"error": "no such session"})
+        summary = next((s for s in self.list_sessions()
+                        if s["session"] == session), None)
+        return {"summary": summary, "manifest": self.read_manifest(session)}
+
+    def api_session_delete(self, body: dict) -> dict:
+        """Delete a session directory from the scans share (laptop side only —
+        the Pis are untouched). When the Pi-side copies were already CLEARed,
+        the share holds the ONLY copy, so the confirm word escalates from
+        "DELETE" to the full session name."""
+        session = str(body.get("session", ""))
+        if not NAME_RE.match(session):
+            raise ApiError(400, {"error": "bad session name"})
+        root = self.scans_root.resolve()
+        target = (root / session).resolve()
+        if target == root or not target.is_relative_to(root):
+            raise ApiError(400, {"error": "bad path"})
+        if not target.is_dir():
+            raise ApiError(404, {"error": "no such session"})
+        manifest = self.read_manifest(session)
+        # Only a manifest that says the Pis still hold their copies proves this
+        # is NOT the last copy; no manifest = unknown provenance = assume last.
+        only_copy = manifest is None or bool(manifest.get("cleared_on_pis"))
+        required = session if only_copy else "DELETE"
+        if body.get("confirm") != required:
+            raise ApiError(400, {
+                "error": 'confirm must be "%s"' % required,
+                "only_copy": only_copy})
+        with self.operation("session-delete"):
+            files = sum(1 for f in target.rglob("*") if f.is_file())
+            shutil.rmtree(target)
+            shutil.rmtree(THUMBS_DIR / session, ignore_errors=True)
+            self.tick("warn", "DELETED %s from share · %d files%s"
+                      % (session, files,
+                         " · was the only copy" if only_copy else ""))
+        self.hub.publish("sessions", self.list_sessions())
+        return {"session": session, "files_removed": files,
+                "only_copy": only_copy}
+
     def api_set_ntp(self, body: dict) -> dict:
         server = str(body.get("server", "")).strip()
         if not server or any(c.isspace() for c in server):
@@ -1221,6 +1292,46 @@ class App:
                 "reachable": reachable, "expected": expected,
                 "results": reply_summary(replies)}
 
+    def _stream_script(self, cmd: List[str], env: dict, opname: str,
+                       deadline_s: float) -> Tuple[int, int]:
+        """Run a provisioning script, streaming each stdout line (ANSI stripped)
+        as an op event. stdin=DEVNULL: an ssh/sudo password prompt must fail
+        fast, not block on our tty holding the op lock forever. The deadline
+        backstops a hung remote (a Pi dying mid-transfer keeps its TCP session
+        in retransmission for many minutes). Returns (lines, exit_code)."""
+        # errors="replace": scripts relay remote bytes verbatim (journalctl via
+        # ssh in diagnose-pis.sh) which are not reliably UTF-8 — a strict
+        # decoder would crash the stream mid-run and orphan the child.
+        proc = subprocess.Popen(
+            cmd, env=env, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace")
+        assert proc.stdout is not None
+        lines = 0
+        exit_code = 0
+        deadline = time.monotonic() + deadline_s
+        killer = threading.Timer(deadline_s, proc.kill)
+        killer.daemon = True
+        killer.start()
+        try:
+            for line in proc.stdout:
+                self.hub.publish("op", {"op": opname,
+                                        "line": ANSI_RE.sub("", line.rstrip())})
+                lines += 1
+            exit_code = proc.wait()
+        except BaseException:
+            proc.kill()      # never leave the child running with no deadline
+            proc.wait()
+            raise
+        finally:
+            killer.cancel()
+        if time.monotonic() >= deadline:
+            self.hub.publish("op", {
+                "op": opname,
+                "line": "ABORTED — exceeded %ds deadline" % int(deadline_s)})
+            exit_code = exit_code or 124
+        return lines, exit_code
+
     def api_update_fleet(self, body: dict) -> dict:
         with self.operation("update"):
             lines = 0
@@ -1236,33 +1347,9 @@ class App:
                     raise ApiError(500, {"error": "missing %s" % UPDATE_SCRIPT})
                 env = dict(os.environ)
                 env["SSH_USER"] = str(self.config.get("ssh_user") or "pi")
-                # stdin=DEVNULL: an ssh password prompt must fail fast, not
-                # block on our tty holding the op lock forever. The deadline
-                # backstops a hung scp (Pi dying mid-transfer keeps the TCP
-                # session in retransmission for many minutes).
-                proc = subprocess.Popen(
-                    ["bash", str(UPDATE_SCRIPT)], env=env,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-                assert proc.stdout is not None
-                deadline = time.monotonic() + UPDATE_DEADLINE_S
-                killer = threading.Timer(UPDATE_DEADLINE_S, proc.kill)
-                killer.daemon = True
-                killer.start()
-                try:
-                    for line in proc.stdout:
-                        self.hub.publish("op", {"op": "update",
-                                                "line": line.rstrip()})
-                        lines += 1
-                    exit_code = proc.wait()
-                finally:
-                    killer.cancel()
-                if time.monotonic() >= deadline:
-                    self.hub.publish("op", {
-                        "op": "update",
-                        "line": "ABORTED — update exceeded %ds deadline"
-                                % int(UPDATE_DEADLINE_S)})
-                    exit_code = exit_code or 124
+                lines, exit_code = self._stream_script(
+                    ["bash", str(UPDATE_SCRIPT)], env, "update",
+                    UPDATE_DEADLINE_S)
             fleet, _ = self.sweep()
             census = dict(Counter(str(p.get("version", "?"))
                                   for p in fleet["pis"]))
@@ -1274,6 +1361,104 @@ class App:
                                              for v, c in sorted(census.items()))))
         return {"ok": exit_code == 0, "exit_code": exit_code,
                 "lines": lines, "census": census}
+
+    def api_power(self, body: dict) -> dict:
+        """REBOOT/HALT the whole fleet. HALT is close to irreversible in the
+        field — a Pi 3B has no soft power-on — so both require their confirm
+        word, mirroring the CLI's y/N prompt."""
+        action = str(body.get("action", ""))
+        if action not in ("reboot", "halt"):
+            raise ApiError(400, {"error": 'action must be "reboot" or "halt"'})
+        if body.get("confirm") != action.upper():
+            raise ApiError(400, {"error": 'confirm must be "%s"' % action.upper()})
+        verb = action.upper()                      # REBOOT / HALT
+        ack_type = "REBOOTING" if action == "reboot" else "HALTING"
+        expected = int(self.config["expected_pis"])
+        with self.operation("power"):
+            replies = self.rig.broadcast({"msg": verb}, POWER_TIMEOUT_S,
+                                         expected=expected)
+            acks = sum(1 for r in replies if r.msg_type == ack_type)
+            note = ("fleet restarting — back in ~60 s" if action == "reboot"
+                    else "fleet powering off — PHYSICAL power-cycle to return")
+            self.tick("warn", "%s · %d/%d ack · %s" % (verb, acks, expected, note))
+        return {"action": action, "acks": acks, "expected": expected,
+                "note": note, "results": reply_summary(replies)}
+
+    def api_diagnose(self, body: dict) -> dict:
+        """Stream provision/diagnose-pis.sh or diagnose-smb.sh into the GUI.
+        diagnose-smb.sh must run as root, so it goes through `sudo -n`; without
+        passwordless sudo it fails fast and the streamed output says so."""
+        target = str(body.get("target", ""))
+        if target not in ("pis", "smb"):
+            raise ApiError(400, {"error": 'target must be "pis" or "smb"'})
+        script = DIAG_PIS_SCRIPT if target == "pis" else DIAG_SMB_SCRIPT
+        with self.operation("diagnose"):
+            if self.sim:
+                lines, exit_code = self._sim_diagnose(target)
+            else:
+                if not script.is_file():
+                    raise ApiError(500, {"error": "missing %s" % script})
+                env = dict(os.environ)
+                if target == "pis":
+                    env["SSH_USER"] = str(self.config.get("ssh_user") or "pi")
+                    cmd = ["bash", str(script)]
+                else:
+                    cmd = ["sudo", "-n", "bash", str(script)]
+                lines, exit_code = self._stream_script(cmd, env, "diagnose",
+                                                       DIAG_DEADLINE_S)
+                if target == "smb" and exit_code != 0 and lines <= 2:
+                    self.hub.publish("op", {
+                        "op": "diagnose",
+                        "line": "hint: diagnose-smb.sh needs root — allow "
+                                "passwordless sudo for it, or run manually: "
+                                "sudo ./provision/diagnose-smb.sh"})
+            self.tick("ok" if exit_code == 0 else "warn",
+                      "DIAGNOSE %s · exit %d" % (target.upper(), exit_code))
+        return {"target": target, "ok": exit_code == 0,
+                "exit_code": exit_code, "lines": lines}
+
+    def _sim_diagnose(self, target: str) -> Tuple[int, int]:
+        """Plausible diagnose output for the fake fleet, tied to real sim faults."""
+        nodes = getattr(self.rig, "nodes", [])
+        out: List[str] = []
+        code = 0
+        if target == "pis":
+            dead = [n for n in nodes if n.dead]
+            out.append("[diagnose] live on network: %d" % len(nodes))
+            out.append("[diagnose] pinging (timeout 10s)…")
+            out.append("[diagnose] SSH-reachable: %d   answered ping: %d"
+                       % (len(nodes), len(nodes) - len(dead)))
+            if dead:
+                code = 1
+                out.append("[diagnose] %d Pi(s) reachable via SSH but SILENT "
+                           "on ping — inspecting:" % len(dead))
+                for n in dead:
+                    out += ["───── 192.168.50.%d  (%s) ─────" % (100 + n.index, n.pi),
+                            "  service:        inactive",
+                            "  udp/9999:        NOT LISTENING",
+                            "  daemon version:  MAC-based (new)",
+                            "  recent logs:",
+                            "    (picam_node exited 1 — see journalctl on the Pi)"]
+                out.append("[diagnose] hints: NOT LISTENING -> 'sudo systemctl "
+                           "restart picam_node' on that Pi")
+            else:
+                out.append("[diagnose] ✓ every SSH-reachable Pi answered ping")
+        else:
+            for sec, res in [("Samba service", ["PASS  smbd active",
+                                                "PASS  listening on :445"]),
+                             ("Users", ["PASS  system user 'scanner' exists",
+                                        "PASS  Samba user 'scanner' exists"]),
+                             ("Share config", ["PASS  [scans] path = /srv/scans",
+                                               "PASS  writable = yes"]),
+                             ("Filesystem", ["PASS  owned scanner:scanner",
+                                             "PASS  write-as-scanner ok"])]:
+                out.append("== %s ==" % sec)
+                out += ["  " + r for r in res]
+            out.append("0 FAIL · 0 WARN — SMB layer looks healthy")
+        for line in out:
+            self.hub.publish("op", {"op": "diagnose", "line": line})
+            time.sleep(0.02)
+        return len(out), code
 
     def api_preflight(self, body: dict) -> dict:
         motion_safe = bool(body.get("motion_safe", True))
@@ -1400,6 +1585,9 @@ POST_ROUTES = {
     "/api/update-fleet": "api_update_fleet",
     "/api/preflight": "api_preflight",
     "/api/config": "api_config",
+    "/api/power": "api_power",
+    "/api/diagnose": "api_diagnose",
+    "/api/session-delete": "api_session_delete",
 }
 
 FALLBACK_INDEX = (b"<!doctype html><meta charset=utf-8>"
@@ -1462,6 +1650,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._serve_events()
             elif path == "/api/sessions":
                 self._send_json(self.app.list_sessions())
+            elif path.startswith("/api/session/"):
+                self._send_json(
+                    self.app.session_detail(path[len("/api/session/"):]))
             elif path.startswith("/api/thumb/"):
                 self._serve_capture(path[len("/api/thumb/"):], thumb=True)
             elif path.startswith("/api/image/"):
